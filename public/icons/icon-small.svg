@@ -1,0 +1,16 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background -->
+  <rect width="32" height="32" fill="#0f172a" rx="4"/>
+
+  <!-- Left eye (white circle) -->
+  <circle cx="11" cy="16" r="5" fill="#f8fafc"/>
+
+  <!-- Right eye (white circle) -->
+  <circle cx="21" cy="16" r="5" fill="#f8fafc"/>
+
+  <!-- Left pupil (blue) -->
+  <circle cx="11" cy="16" r="2.5" fill="#2563eb"/>
+
+  <!-- Right pupil (blue) -->
+  <circle cx="21" cy="16" r="2.5" fill="#2563eb"/>
+</svg>
