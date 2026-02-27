@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenOwl</title>
+  <!-- React Fast Refresh Preamble for Vite dev mode -->
+  <script type="module">
+    // This enables React Fast Refresh in development
+    // @crxjs/vite-plugin will strip this in production builds
+    if (import.meta.env.DEV) {
+      try {
+        const RefreshRuntime = await import('/@react-refresh');
+        RefreshRuntime.injectIntoGlobalHook(window);
+        window.$RefreshReg$ = () => {};
+        window.$RefreshSig$ = () => (type) => type;
+        window.__vite_plugin_react_preamble_installed__ = true;
+      } catch (e) {
+        console.warn('React Fast Refresh not available:', e);
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/sidebar/main.jsx"></script>
+</body>
+</html>

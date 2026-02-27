@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "OpenOwl",
+  "version": "0.1.0",
+  "description": "AI browser memory for developers. All tabs context, workday tracking, BYOK. Local first. Zero servers.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "tabs",
+    "storage",
+    "sidePanel",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/sidebar/sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open OpenOwl"
+  }
+}
