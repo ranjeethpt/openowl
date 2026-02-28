@@ -45,10 +45,10 @@ _Coming soon_ - We're working on publishing to the Chrome Web Store.
 1. Click the OpenOwl icon in Chrome toolbar
 2. Go to **Settings** tab
 3. Select your LLM provider:
-   - **Anthropic Claude** (recommended)
+   - **Ollama** (local)
+   - **Anthropic Claude**
    - **OpenAI**
    - **Google Gemini**
-   - **Ollama** (local, no API key needed)
 4. Enter your API key
 5. Click **Save Settings**
 
