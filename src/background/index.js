@@ -51,12 +51,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleLogVisit(message.data, sendResponse);
       return true; // Async response
 
+    case 'UPDATE_ENTRY':
+      handleUpdateEntry(message.data, sendResponse);
+      return true; // Async response
+
+    case 'GET_TODAY_STATS':
+      handleGetTodayStats(sendResponse);
+      return true; // Async response
+
     case 'ASK_AI':
       handleAskAI(message.data, sendResponse);
       return true; // Async response
 
     case 'GET_PATTERNS':
       handleGetPatterns(sendResponse);
+      return true; // Async response
+
+    case 'ANALYZE_PATTERNS':
+      handleAnalyzePatterns(sendResponse);
       return true; // Async response
 
     default:
@@ -176,7 +188,7 @@ async function handleGetAllTabs(sendResponse) {
  */
 async function handleGetDayLog(date, sendResponse) {
   try {
-    const entries = date ? await storage.getDayLog(date) : await storage.getTodayLog();
+    const entries = await storage.getDayLog(date);
     sendResponse({ success: true, data: entries });
   } catch (error) {
     console.error('Error getting day log:', error);
@@ -202,15 +214,66 @@ async function handleGetYesterdayLog(sendResponse) {
  */
 async function handleLogVisit(data, sendResponse) {
   try {
-    await storage.logVisit({
+    // Extract domain from URL
+    const url = new URL(data.url);
+    const domain = url.hostname;
+
+    // Check if this is a revisit
+    const todayEntries = await storage.getDayLog();
+    const previousVisit = todayEntries.find(e => e.url === data.url);
+    const revisited = !!previousVisit;
+    const visitCount = previousVisit ? previousVisit.visitCount + 1 : 1;
+
+    // Save entry
+    const entryId = await storage.saveDayLogEntry({
       url: data.url,
       title: data.title,
-      content: data.content,
-      timestamp: Date.now()
+      domain,
+      content: data.content || '',
+      extractionType: data.type || data.extractionMethod || 'generic',
+      visitedAt: data.visitedAt || Date.now(),
+      activeTime: data.activeTime || 0,
+      scrollDepth: data.scrollDepth || 0,
+      copied: data.copied || [],
+      revisited,
+      visitCount,
+      sessionId: data.sessionId
+    });
+
+    sendResponse({ success: true, entryId });
+  } catch (error) {
+    console.error('Error logging visit:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Update an existing day log entry
+ */
+async function handleUpdateEntry(data, sendResponse) {
+  try {
+    await storage.updateEntry(data.id, {
+      leftAt: data.leftAt,
+      activeTime: data.activeTime,
+      scrollDepth: data.scrollDepth,
+      copied: data.copied
     });
     sendResponse({ success: true });
   } catch (error) {
-    console.error('Error logging visit:', error);
+    console.error('Error updating entry:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get today's statistics
+ */
+async function handleGetTodayStats(sendResponse) {
+  try {
+    const stats = await storage.getTodayStats();
+    sendResponse({ success: true, data: stats });
+  } catch (error) {
+    console.error('Error getting today stats:', error);
     sendResponse({ success: false, error: error.message });
   }
 }
@@ -388,6 +451,167 @@ async function handleGetPatterns(sendResponse) {
   }
 }
 
+/**
+ * Analyze patterns from last 7 days of logs
+ */
+async function handleAnalyzePatterns(sendResponse) {
+  try {
+    // Get last 7 days of logs
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 7);
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    const entries = await storage.getLogRange(startDateStr, endDate);
+
+    if (entries.length === 0) {
+      sendResponse({
+        success: true,
+        data: {
+          morningRoutine: [],
+          peakHours: [],
+          topSites: [],
+          workClusters: [],
+          avgTabsOpen: 0,
+          avgSessionLength: 0
+        }
+      });
+      return;
+    }
+
+    // Analyze patterns
+    const patterns = analyzePatterns(entries);
+
+    // Save patterns to storage
+    await storage.savePatterns(patterns);
+
+    sendResponse({ success: true, data: patterns });
+  } catch (error) {
+    console.error('Error analyzing patterns:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Analyze patterns from day log entries
+ * @param {Array} entries - Day log entries from last 7 days
+ * @returns {Object} Analyzed patterns
+ */
+function analyzePatterns(entries) {
+  // Morning routine (sites visited 6am-10am)
+  const morningEntries = entries.filter(e => {
+    const hour = new Date(e.visitedAt).getHours();
+    return hour >= 6 && hour < 10;
+  });
+
+  const morningDomains = {};
+  morningEntries.forEach(e => {
+    if (e.domain) {
+      morningDomains[e.domain] = (morningDomains[e.domain] || 0) + 1;
+    }
+  });
+
+  const morningRoutine = Object.entries(morningDomains)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([domain, count]) => ({ domain, count }));
+
+  // Peak hours (most active hours)
+  const hourCounts = {};
+  entries.forEach(e => {
+    const hour = new Date(e.visitedAt).getHours();
+    hourCounts[hour] = (hourCounts[hour] || 0) + (e.activeTime || 0);
+  });
+
+  const peakHours = Object.entries(hourCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([hour, time]) => ({
+      hour: parseInt(hour),
+      totalActiveTime: time
+    }));
+
+  // Top sites (by active time)
+  const siteTimes = {};
+  entries.forEach(e => {
+    if (e.domain) {
+      siteTimes[e.domain] = (siteTimes[e.domain] || 0) + (e.activeTime || 0);
+    }
+  });
+
+  const topSites = Object.entries(siteTimes)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([domain, time]) => ({ domain, totalActiveTime: time }));
+
+  // Work clusters (sites visited together in same session)
+  const sessionClusters = {};
+  entries.forEach(e => {
+    if (!e.sessionId || !e.domain) return;
+
+    if (!sessionClusters[e.sessionId]) {
+      sessionClusters[e.sessionId] = new Set();
+    }
+    sessionClusters[e.sessionId].add(e.domain);
+  });
+
+  // Find common clusters
+  const clusterPatterns = {};
+  Object.values(sessionClusters).forEach(domains => {
+    if (domains.size < 2) return;
+
+    const sortedDomains = Array.from(domains).sort();
+    const clusterKey = sortedDomains.slice(0, 3).join('+');
+
+    clusterPatterns[clusterKey] = (clusterPatterns[clusterKey] || 0) + 1;
+  });
+
+  const workClusters = Object.entries(clusterPatterns)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([cluster, count]) => ({
+      domains: cluster.split('+'),
+      count
+    }));
+
+  // Average tabs open per session
+  const sessionsWithMultipleTabs = Object.values(sessionClusters).filter(
+    domains => domains.size > 1
+  );
+  const avgTabsOpen = sessionsWithMultipleTabs.length > 0
+    ? Math.round(
+        sessionsWithMultipleTabs.reduce((sum, domains) => sum + domains.size, 0) /
+        sessionsWithMultipleTabs.length
+      )
+    : 0;
+
+  // Average session length (time between first and last entry in session)
+  const sessionLengths = [];
+  Object.keys(sessionClusters).forEach(sessionId => {
+    const sessionEntries = entries.filter(e => e.sessionId === sessionId);
+    if (sessionEntries.length < 2) return;
+
+    const times = sessionEntries.map(e => e.visitedAt).sort();
+    const length = times[times.length - 1] - times[0];
+    sessionLengths.push(length);
+  });
+
+  const avgSessionLength = sessionLengths.length > 0
+    ? Math.round(
+        sessionLengths.reduce((sum, len) => sum + len, 0) / sessionLengths.length
+      )
+    : 0;
+
+  return {
+    morningRoutine,
+    peakHours,
+    topSites,
+    workClusters,
+    avgTabsOpen,
+    avgSessionLength
+  };
+}
+
 // ============================================
 // Extension Lifecycle Events
 // ============================================
@@ -395,6 +619,14 @@ async function handleGetPatterns(sendResponse) {
 // Initialize extension on install or update
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('OpenOwl installed/updated:', details.reason);
+
+  // Initialize IndexedDB on install so it shows up in DevTools
+  try {
+    await storage.getDayLog(); // This will create the database
+    console.log('IndexedDB initialized');
+  } catch (error) {
+    console.error('Error initializing IndexedDB:', error);
+  }
 
   // Set up periodic cleanup alarm
   chrome.alarms.create('cleanOldLogs', { periodInMinutes: 1440 }); // 24 hours
@@ -439,7 +671,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'cleanOldLogs') {
     try {
-      await storage.cleanOldLogs(30);
+      await storage.cleanupOldEntries(30);
       console.log('Old logs cleaned successfully');
     } catch (error) {
       console.error('Error cleaning old logs:', error);

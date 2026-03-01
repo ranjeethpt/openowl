@@ -91,22 +91,37 @@ Rules:
    * Generate daily standup from activity
    */
   standup: {
-    version: '1.0.0',
-    description: 'Generate daily standup from activity',
+    version: '2.0.0',
+    description: 'Generate daily standup from day log activity',
 
     /**
      * @param {Object} context
-     * @param {Array} context.todayLog - Today's activity
-     * @param {Array} [context.yesterdayLog] - Yesterday's activity
-     * @param {Array} [context.patterns] - Work patterns
+     * @param {Array} context.todayLog - Today's day log entries with full metadata
+     * @param {Array} [context.yesterdayLog] - Yesterday's day log entries
+     * @param {Object} [context.todayStats] - Today's statistics
      * @returns {PromptResult}
      */
     build: (context) => {
-      const { todayLog = [], yesterdayLog = [] } = context;
+      const { todayLog = [], yesterdayLog = [], todayStats = {} } = context;
 
-      const formatLog = (log) => log.map(entry =>
-        `- ${entry.title} (${entry.domain}) at ${new Date(entry.timestamp).toLocaleTimeString()}`
-      ).join('\n');
+      const formatLog = (log) => {
+        if (log.length === 0) return 'No activity';
+
+        // Group by domain for better readability
+        const byDomain = {};
+        log.forEach(entry => {
+          const domain = entry.domain || 'unknown';
+          if (!byDomain[domain]) byDomain[domain] = [];
+          byDomain[domain].push(entry);
+        });
+
+        return Object.entries(byDomain).map(([domain, entries]) => {
+          const titles = entries.map(e => e.title).slice(0, 3);
+          const timeSpent = entries.reduce((sum, e) => sum + (e.activeTime || 0), 0);
+          const timeStr = timeSpent > 0 ? ` (${Math.round(timeSpent / 60000)}m active)` : '';
+          return `- ${domain}: ${titles.join(', ')}${timeStr}`;
+        }).join('\n');
+      };
 
       const todayActivity = todayLog.length > 0
         ? formatLog(todayLog)
@@ -116,30 +131,35 @@ Rules:
         ? formatLog(yesterdayLog)
         : 'No activity from yesterday';
 
-      const system = `You are helping write a daily standup update.
+      const statsContext = todayStats.totalVisits
+        ? `\nToday's stats: ${todayStats.totalVisits} visits, ${todayStats.uniquePages} unique pages, ${Math.round((todayStats.totalActiveTime || 0) / 60000)}m active time`
+        : '';
+
+      const system = `You are helping write a daily standup update based on browser activity logs.
 
 Today's activity:
-${todayActivity}
+${todayActivity}${statsContext}
 
 Yesterday's activity:
 ${yesterdayActivity}
 
 STRICT output format:
-Yesterday: [1-3 bullet points]
-Today: [1-3 bullet points]
+Yesterday: [1-3 bullet points about what was worked on]
+Today: [1-3 bullet points about current/planned work]
 Blockers: [items or "None"]
 
 Rules:
-• Be specific, mention actual items from the log
+• Be specific - mention actual PRs, issues, docs, tickets visible in logs
+• Infer work from visited pages (GitHub PRs = reviewing, Jira = working on tickets, docs = learning)
 • 1-3 bullets per section maximum
-• Past tense for yesterday
-• Future tense for today plans
-• No filler words
-• If todayLog is empty, say so honestly`;
+• Past tense for yesterday, present/future for today
+• Focus on work items, not just "browsed GitHub"
+• If today log is empty, base "Today" on yesterday's trajectory
+• No filler words or generic statements`;
 
       return {
         system,
-        maxTokens: 300
+        maxTokens: 400
       };
     }
   },
@@ -326,6 +346,76 @@ Rules:
         maxTokens: 300
       };
     }
+  },
+
+  /**
+   * Insights from today's activity log
+   */
+  dayInsight: {
+    version: '1.0.0',
+    description: 'Generate insights from today\'s day log',
+
+    /**
+     * @param {Object} context
+     * @param {Array} context.dayLog - Today's complete day log entries
+     * @param {Object} context.stats - Today's statistics
+     * @param {Object} [context.patterns] - Week's patterns for comparison
+     * @returns {PromptResult}
+     */
+    build: (context) => {
+      const { dayLog = [], stats = {}, patterns = {} } = context;
+
+      const logSummary = dayLog.length > 0
+        ? `${dayLog.length} page visits, ${stats.uniquePages || 0} unique pages, ${Math.round((stats.totalActiveTime || 0) / 60000)}m active time`
+        : 'No activity today';
+
+      const topDomains = (stats.topDomains || [])
+        .slice(0, 5)
+        .map(d => `- ${d.domain}: ${d.count} visits`)
+        .join('\n');
+
+      const copiedContent = dayLog
+        .filter(e => e.copied && e.copied.length > 0)
+        .flatMap(e => e.copied)
+        .slice(0, 5)
+        .map(c => `"${c.text.substring(0, 100)}..."`)
+        .join('\n');
+
+      const revisitedPages = dayLog
+        .filter(e => e.revisited)
+        .map(e => `- ${e.title} (${e.visitCount} times)`)
+        .slice(0, 5)
+        .join('\n');
+
+      const system = `You are analyzing today's work activity to provide useful insights.
+
+Today's summary:
+${logSummary}
+
+Top domains:
+${topDomains || 'None'}
+
+${revisitedPages ? `Revisited pages:\n${revisitedPages}\n` : ''}
+${copiedContent ? `Text copied today:\n${copiedContent}\n` : ''}
+
+Output format:
+What you worked on: [2-3 sentence summary]
+Focus areas: [list top 2-3 topics/projects]
+Interesting pattern: [one specific observation]
+
+Rules:
+• Be specific - mention actual tools, projects, features visible in logs
+• Connect the dots between different activities (e.g., reading docs + code = learning new feature)
+• Revisited pages suggest importance or difficulty
+• Copied text shows implementation work
+• No generic statements
+• Keep total under 150 words`;
+
+      return {
+        system,
+        maxTokens: 400
+      };
+    }
   }
 };
 
@@ -376,7 +466,8 @@ export function validateContext(name, context) {
     summarizeTabs: ['tabs'],
     briefing: ['yesterdayLog'],
     continueWork: ['pages'],
-    patternInsight: ['patterns', 'weekLog']
+    patternInsight: ['patterns', 'weekLog'],
+    dayInsight: ['dayLog', 'stats']
   };
 
   const expected = expectedFields[name];

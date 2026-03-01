@@ -103,7 +103,7 @@ function App() {
           </div>
         )}
         {currentView === 'ask' && <Ask />}
-        {currentView === 'today' && <Today />}
+        {currentView === 'today' && <Today onNavigateToAsk={() => setCurrentView('ask')} />}
         {currentView === 'settings' && <Settings onSave={checkConfiguration} />}
       </main>
     </div>

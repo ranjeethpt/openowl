@@ -7,7 +7,7 @@ import { openDB } from 'idb';
 
 // IndexedDB database name and version
 const DB_NAME = 'openowl-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const DAY_LOGS_STORE = 'dayLogs';
 
 /**
@@ -16,7 +16,7 @@ const DAY_LOGS_STORE = 'dayLogs';
  */
 async function initDB() {
   return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
+    upgrade(db, oldVersion) {
       // Create day logs store if it doesn't exist
       if (!db.objectStoreNames.contains(DAY_LOGS_STORE)) {
         const store = db.createObjectStore(DAY_LOGS_STORE, {
@@ -25,8 +25,10 @@ async function initDB() {
         });
         // Indexes for efficient querying
         store.createIndex('date', 'date', { unique: false });
-        store.createIndex('timestamp', 'timestamp', { unique: false });
+        store.createIndex('visitedAt', 'visitedAt', { unique: false });
         store.createIndex('url', 'url', { unique: false });
+        store.createIndex('domain', 'domain', { unique: false });
+        store.createIndex('sessionId', 'sessionId', { unique: false });
       }
     }
   });
@@ -82,26 +84,62 @@ export async function getPatterns() {
 // ============================================
 
 /**
- * Log a visit to IndexedDB
- * @param {Object} entry - { url, title, content, timestamp }
- * @returns {Promise<void>}
+ * Save a day log entry to IndexedDB
+ * Checks for duplicates within 5 minutes window
+ * @param {Object} entry - DayLog entry object
+ * @returns {Promise<number>} entry ID
  */
-export async function logVisit(entry) {
+export async function saveDayLogEntry(entry) {
   const db = await initDB();
-  const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
+  const date = new Date(entry.visitedAt).toISOString().split('T')[0]; // YYYY-MM-DD
 
-  await db.add(DAY_LOGS_STORE, {
-    ...entry,
-    date
-  });
+  // Check for duplicate within 5 minutes
+  const fiveMinutesAgo = entry.visitedAt - (5 * 60 * 1000);
+  const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+  const index = tx.store.index('url');
+  const existingEntries = await index.getAll(entry.url);
+
+  const isDuplicate = existingEntries.some(existing =>
+    existing.visitedAt > fiveMinutesAgo &&
+    existing.visitedAt <= entry.visitedAt
+  );
+
+  if (isDuplicate) {
+    console.log('[DayLog] Skipping duplicate entry within 5min window:', entry.url);
+    return null;
+  }
+
+  // Save entry
+  const fullEntry = {
+    url: entry.url,
+    title: entry.title || 'Untitled',
+    domain: entry.domain,
+    content: entry.content || '',
+    extractionType: entry.extractionType || 'generic',
+    date,
+    visitedAt: entry.visitedAt,
+    leftAt: entry.leftAt || null,
+    activeTime: entry.activeTime || 0,
+    totalTime: entry.totalTime || 0,
+    scrollDepth: entry.scrollDepth || 0,
+    copied: entry.copied || [],
+    revisited: entry.revisited || false,
+    visitCount: entry.visitCount || 1,
+    sessionId: entry.sessionId
+  };
+
+  return db.add(DAY_LOGS_STORE, fullEntry);
 }
 
 /**
- * Get day log entries for a specific date
- * @param {string} date - YYYY-MM-DD format
+ * Get day log entries for a specific date (defaults to today)
+ * @param {string} date - YYYY-MM-DD format (optional, defaults to today)
  * @returns {Promise<Array>}
  */
 export async function getDayLog(date) {
+  if (!date) {
+    date = new Date().toISOString().split('T')[0];
+  }
   const db = await initDB();
   const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
   const index = tx.store.index('date');
@@ -120,15 +158,6 @@ export async function getYesterdayLog() {
 }
 
 /**
- * Get today's day log entries
- * @returns {Promise<Array>}
- */
-export async function getTodayLog() {
-  const today = new Date().toISOString().split('T')[0];
-  return getDayLog(today);
-}
-
-/**
  * Get all entries within a date range
  * @param {string} startDate - YYYY-MM-DD
  * @param {string} endDate - YYYY-MM-DD
@@ -143,11 +172,33 @@ export async function getLogRange(startDate, endDate) {
 }
 
 /**
- * Delete old entries (keep only last N days)
- * @param {number} daysToKeep - Number of days to keep
+ * Update an existing day log entry
+ * @param {number} id - Entry ID
+ * @param {Object} updates - Fields to update
  * @returns {Promise<void>}
  */
-export async function cleanOldLogs(daysToKeep = 30) {
+export async function updateEntry(id, updates) {
+  const db = await initDB();
+  const tx = db.transaction(DAY_LOGS_STORE, 'readwrite');
+  const store = tx.store;
+
+  const entry = await store.get(id);
+  if (!entry) {
+    console.warn('[DayLog] Entry not found:', id);
+    return;
+  }
+
+  const updatedEntry = { ...entry, ...updates };
+  await store.put(updatedEntry);
+  await tx.done;
+}
+
+/**
+ * Delete old entries (keep only last N days)
+ * @param {number} daysToKeep - Number of days to keep (default 30)
+ * @returns {Promise<number>} Number of deleted entries
+ */
+export async function cleanupOldEntries(daysToKeep = 30) {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
   const cutoff = cutoffDate.toISOString().split('T')[0];
@@ -157,23 +208,56 @@ export async function cleanOldLogs(daysToKeep = 30) {
   const index = tx.store.index('date');
   const range = IDBKeyRange.upperBound(cutoff, true); // exclude cutoff date
 
+  let deleteCount = 0;
   let cursor = await index.openCursor(range);
   while (cursor) {
     await cursor.delete();
+    deleteCount++;
     cursor = await cursor.continue();
   }
 
   await tx.done;
+  console.log(`[DayLog] Cleaned up ${deleteCount} old entries (older than ${cutoff})`);
+  return deleteCount;
 }
 
 /**
- * Get count of entries for a specific date
- * @param {string} date - YYYY-MM-DD
- * @returns {Promise<number>}
+ * Get today's statistics
+ * @returns {Promise<Object>} { totalVisits, uniquePages, totalActiveTime, topDomains }
  */
-export async function getLogCount(date) {
-  const db = await initDB();
-  const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
-  const index = tx.store.index('date');
-  return index.count(date);
+export async function getTodayStats() {
+  const entries = await getDayLog();
+
+  if (entries.length === 0) {
+    return {
+      totalVisits: 0,
+      uniquePages: 0,
+      totalActiveTime: 0,
+      topDomains: []
+    };
+  }
+
+  // Calculate stats
+  const uniqueUrls = new Set(entries.map(e => e.url));
+  const totalActiveTime = entries.reduce((sum, e) => sum + (e.activeTime || 0), 0);
+
+  // Top domains
+  const domainCounts = {};
+  entries.forEach(e => {
+    if (e.domain) {
+      domainCounts[e.domain] = (domainCounts[e.domain] || 0) + 1;
+    }
+  });
+
+  const topDomains = Object.entries(domainCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([domain, count]) => ({ domain, count }));
+
+  return {
+    totalVisits: entries.length,
+    uniquePages: uniqueUrls.size,
+    totalActiveTime,
+    topDomains
+  };
 }
