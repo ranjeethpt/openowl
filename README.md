@@ -1,4 +1,4 @@
-# OpenOwl 🦉
+# OpenOwl
 
 **AI browser memory for developers. All tabs context, workday tracking, BYOK (Bring Your Own Key). Local-first. Zero servers.**
 
