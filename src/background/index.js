@@ -5,6 +5,7 @@
 
 import { callLLM } from '../llm/index.js';
 import * as storage from '../storage/index.js';
+import { getPrompt } from '../prompts/registry.js';
 
 // ============================================
 // Service Worker Lifecycle
@@ -96,68 +97,78 @@ async function handleSaveSettings(data, sendResponse) {
 }
 
 /**
- * Get all open tabs content
+ * Get all open tabs content using READ_PAGE message
  */
 async function handleGetAllTabs(sendResponse) {
   try {
     const tabs = await chrome.tabs.query({});
     const tabsData = [];
+    let skippedCount = 0;
+
+    // Get active tab ID
+    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTabId = activeTabs[0]?.id;
 
     for (const tab of tabs) {
-      // Skip chrome:// and extension URLs
-      if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
+      // Skip chrome:// extension URLs, and new tab pages
+      if (tab.url?.startsWith('chrome://') ||
+          tab.url?.startsWith('chrome-extension://') ||
+          tab.url?.startsWith('about:') ||
+          tab.url === 'chrome://newtab/') {
+        skippedCount++;
         continue;
       }
 
       try {
-        // Try to read page content
-        const [result] = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: extractPageContent
-        });
+        // Send READ_PAGE message to content script with 2 second timeout
+        const response = await Promise.race([
+          chrome.tabs.sendMessage(tab.id, { type: 'READ_PAGE' }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 2000)
+          )
+        ]);
 
-        tabsData.push({
-          id: tab.id,
-          url: tab.url,
-          title: tab.title,
-          content: result?.result || ''
-        });
+        if (response.success) {
+          tabsData.push({
+            ...response.data,
+            active: tab.id === activeTabId
+          });
+        } else {
+          // Content script returned error
+          tabsData.push({
+            url: tab.url,
+            title: tab.title,
+            content: '(unavailable)',
+            type: 'error',
+            extractionMethod: 'fallback',
+            active: tab.id === activeTabId
+          });
+        }
       } catch (error) {
-        // Some tabs block scripts - skip them gracefully
+        // Tab doesn't have content script or timed out
         console.warn(`Could not read tab ${tab.id}:`, error.message);
         tabsData.push({
-          id: tab.id,
           url: tab.url,
           title: tab.title,
-          content: '[Content unavailable]'
+          content: '(unavailable)',
+          type: 'error',
+          extractionMethod: 'fallback',
+          active: tab.id === activeTabId
         });
       }
     }
 
-    sendResponse({ success: true, data: tabsData });
+    sendResponse({
+      success: true,
+      tabs: tabsData,
+      totalTabs: tabs.length,
+      readableTabs: tabsData.length,
+      skippedTabs: skippedCount
+    });
   } catch (error) {
     console.error('Error getting tabs:', error);
     sendResponse({ success: false, error: error.message });
   }
-}
-
-/**
- * Function to extract page content (injected into tabs)
- */
-function extractPageContent() {
-  // Remove script, style, nav, footer, header elements
-  const contentElements = document.body.cloneNode(true);
-  const unwanted = contentElements.querySelectorAll('script, style, nav, footer, header, iframe');
-  unwanted.forEach(el => el.remove());
-
-  // Get text content
-  let text = contentElements.innerText || contentElements.textContent || '';
-
-  // Clean up whitespace
-  text = text.replace(/\s+/g, ' ').trim();
-
-  // Limit to 2000 characters
-  return text.substring(0, 2000);
 }
 
 /**
@@ -205,7 +216,92 @@ async function handleLogVisit(data, sendResponse) {
 }
 
 /**
- * Ask AI a question
+ * Build smart context for AI question
+ * Detects question type and selects/compresses relevant tabs
+ * @param {string} question - User's question
+ * @param {Array} tabs - All available tabs
+ * @returns {Object} Context with selected tabs and metadata
+ */
+function buildContextForQuestion(question, tabs) {
+  const lowerQuestion = question.toLowerCase();
+
+  // Step 1: Detect question type
+  let questionType = 'general';
+  if (lowerQuestion.match(/\b(this|current|here|this page)\b/)) {
+    questionType = 'current_page';
+  } else if (lowerQuestion.match(/\b(all|everything|tabs|open|all tabs)\b/)) {
+    questionType = 'all_tabs';
+  } else if (lowerQuestion.match(/\b(standup|yesterday|worked on|today|daily)\b/)) {
+    questionType = 'standup';
+  }
+
+  // Step 2: Select tabs by type
+  let selectedTabs;
+  const TOKEN_BUDGET = 4000;
+
+  switch (questionType) {
+    case 'current_page':
+      // Active tab only
+      selectedTabs = tabs.filter(t => t.active).slice(0, 1);
+      break;
+
+    case 'standup':
+      // No tabs needed for standup (uses day log instead)
+      selectedTabs = [];
+      break;
+
+    case 'all_tabs':
+      // All tabs, max 8
+      selectedTabs = tabs.slice(0, 8);
+      break;
+
+    case 'general':
+    default:
+      // Active tab + 2 most recent = max 3
+      const activeTab = tabs.find(t => t.active);
+      const otherTabs = tabs.filter(t => !t.active).slice(0, 2);
+      selectedTabs = activeTab ? [activeTab, ...otherTabs] : otherTabs;
+      break;
+  }
+
+  // Step 3: Compress content
+  selectedTabs = selectedTabs.map(tab => {
+    if (tab.extractionMethod === 'generic' && tab.content.length > 500) {
+      // Compress generic extractions to 500 chars
+      return {
+        ...tab,
+        content: tab.content.substring(0, 500) + '...',
+        compressed: true
+      };
+    }
+    return { ...tab, compressed: false };
+  });
+
+  // Step 4: Apply token budget
+  let estimatedTokens = 0;
+  const finalTabs = [];
+
+  for (const tab of selectedTabs) {
+    const tabTokens = Math.ceil(tab.content.length / 4);
+    if (estimatedTokens + tabTokens > TOKEN_BUDGET) {
+      break;
+    }
+    finalTabs.push(tab);
+    estimatedTokens += tabTokens;
+  }
+
+  // Step 5: Return context
+  return {
+    tabs: finalTabs,
+    tabCount: finalTabs.length,
+    totalTabCount: tabs.length,
+    questionType,
+    estimatedTokens
+  };
+}
+
+/**
+ * Ask AI a question with smart context building
  */
 async function handleAskAI(data, sendResponse) {
   try {
@@ -218,17 +314,61 @@ async function handleAskAI(data, sendResponse) {
       throw new Error('API key not configured. Please set it in Settings.');
     }
 
+    // Get all tabs if context is requested
+    let context = null;
+    if (data.includeContext !== false) {
+      // Get all tabs
+      const tabsResponse = await new Promise((resolve) => {
+        handleGetAllTabs(resolve);
+      });
+
+      if (tabsResponse.success) {
+        // Build smart context
+        context = buildContextForQuestion(data.prompt, tabsResponse.tabs);
+      }
+    }
+
+    // Build system prompt using prompt registry (if not overridden)
+    let systemPrompt;
+
+    if (data.systemPrompt) {
+      // Custom system prompt provided - use as-is
+      systemPrompt = data.systemPrompt;
+    } else if (context) {
+      // Use 'ask' prompt from registry with tab context
+      const prompt = getPrompt('ask', {
+        tabs: context.tabs,
+        tabCount: context.tabCount,
+        totalTabs: context.totalTabCount
+      });
+      systemPrompt = prompt.system;
+    } else {
+      // No context - use simple fallback
+      systemPrompt = 'You are OpenOwl, an AI assistant for developers.';
+    }
+
     // Call LLM
     const response = await callLLM({
       provider: provider,
       apiKey: apiKey,
       model: settings.selectedModel,
       prompt: data.prompt,
-      systemPrompt: data.systemPrompt || 'You are a helpful assistant.',
+      systemPrompt: systemPrompt,
       ollamaUrl: settings.ollamaUrl
     });
 
-    sendResponse({ success: true, data: { text: response } });
+    sendResponse({
+      success: true,
+      data: {
+        text: response,
+        context: context ? {
+          tabsUsed: context.tabCount,
+          totalTabs: context.totalTabCount,
+          questionType: context.questionType,
+          estimatedTokens: context.estimatedTokens
+        } : null
+      }
+    });
   } catch (error) {
     console.error('Error asking AI:', error);
     sendResponse({ success: false, error: error.message });
@@ -258,6 +398,38 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   // Set up periodic cleanup alarm
   chrome.alarms.create('cleanOldLogs', { periodInMinutes: 1440 }); // 24 hours
+});
+
+// ============================================
+// Tab Change Listeners
+// ============================================
+
+/**
+ * Notify sidebar when tabs change
+ */
+function notifyTabsChanged() {
+  // Send message to sidebar (it will ignore if not listening)
+  chrome.runtime.sendMessage({ type: 'TABS_CHANGED' }).catch(() => {
+    // Sidebar might not be open, ignore error
+  });
+}
+
+// Notify when tabs are created
+chrome.tabs.onCreated.addListener(() => {
+  notifyTabsChanged();
+});
+
+// Notify when tabs are removed
+chrome.tabs.onRemoved.addListener(() => {
+  notifyTabsChanged();
+});
+
+// Notify when tabs are updated (URL changes, etc)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // Only notify on significant changes (URL or title changes)
+  if (changeInfo.url || changeInfo.title) {
+    notifyTabsChanged();
+  }
 });
 
 // ============================================

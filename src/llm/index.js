@@ -323,6 +323,45 @@ async function handleOllamaStream(response, onChunk) {
 }
 
 /**
+ * Call LLM using a named prompt from the registry
+ * @param {string} promptName - Name of prompt in registry (ask, standup, etc)
+ * @param {Object} promptContext - Context for building the prompt
+ * @param {string} userMessage - User's message (if empty, uses prompt.user if available)
+ * @param {Object} llmConfig - { provider, apiKey, model, ollamaUrl }
+ * @param {Function} [onChunk] - Optional streaming callback
+ * @returns {Promise<{text: string, promptName: string, tokensUsed: number}>}
+ */
+export async function callWithPrompt(promptName, promptContext, userMessage, llmConfig, onChunk = null) {
+  // Import here to avoid circular dependency
+  const { getPrompt } = await import('../prompts/registry.js');
+
+  // Get the built prompt
+  const prompt = getPrompt(promptName, promptContext);
+
+  // Use user message if provided, otherwise use prompt.user as fallback
+  const finalUserMessage = userMessage || prompt.user || 'Please help.';
+
+  // Call the LLM
+  const response = await callLLM({
+    provider: llmConfig.provider,
+    apiKey: llmConfig.apiKey,
+    model: llmConfig.model,
+    prompt: finalUserMessage,
+    systemPrompt: prompt.system,
+    ollamaUrl: llmConfig.ollamaUrl
+  }, onChunk);
+
+  // Estimate tokens used (rough approximation: chars / 4)
+  const tokensUsed = Math.ceil((prompt.system.length + finalUserMessage.length + response.length) / 4);
+
+  return {
+    text: response,
+    promptName,
+    tokensUsed
+  };
+}
+
+/**
  * Test LLM connection
  * @param {Object} config - { provider, apiKey, model }
  * @returns {Promise<boolean>} True if connection successful
