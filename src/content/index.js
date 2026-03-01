@@ -1,7 +1,9 @@
 /**
  * Content script for OpenOwl
- * Runs on all pages to track visits and extract content
+ * Runs on all pages to track visits and extract content using the registry system
  */
+
+import { extractCurrentPage } from './extractors/registry.js';
 
 console.log('OpenOwl content script loaded');
 
@@ -10,38 +12,9 @@ let logTimer = null;
 const LOG_DEBOUNCE_MS = 500;
 
 /**
- * Extract main content from the page
- * Strips HTML, nav, footer, etc. and limits to 2000 chars
+ * Log current page visit to background using registry extractor
  */
-function extractPageContent() {
-  try {
-    // Clone body to avoid modifying actual DOM
-    const bodyClone = document.body.cloneNode(true);
-
-    // Remove unwanted elements
-    const unwanted = bodyClone.querySelectorAll(
-      'script, style, nav, footer, header, iframe, noscript, svg'
-    );
-    unwanted.forEach(el => el.remove());
-
-    // Get text content
-    let text = bodyClone.innerText || bodyClone.textContent || '';
-
-    // Clean up whitespace
-    text = text.replace(/\s+/g, ' ').trim();
-
-    // Limit to 2000 characters
-    return text.substring(0, 2000);
-  } catch (error) {
-    console.error('Error extracting page content:', error);
-    return '';
-  }
-}
-
-/**
- * Log current page visit to background
- */
-function logPageVisit() {
+async function logPageVisit() {
   // Skip chrome:// and extension URLs
   if (window.location.href.startsWith('chrome://') ||
       window.location.href.startsWith('chrome-extension://') ||
@@ -55,16 +28,13 @@ function logPageVisit() {
   }
 
   try {
-    const pageData = {
-      url: window.location.href,
-      title: document.title || 'Untitled',
-      content: extractPageContent()
-    };
+    // Use registry to extract page content
+    const extracted = await extractCurrentPage();
 
-    // Send to background for logging
+    // Send extracted content to background for logging
     chrome.runtime.sendMessage({
       type: 'LOG_VISIT',
-      data: pageData
+      data: extracted
     }).catch(error => {
       // Extension might be reloading, ignore
       console.debug('Could not send log visit:', error.message);
@@ -107,19 +77,22 @@ if (document.body) {
   });
 }
 
-// Listen for messages from background (if needed for future features)
+// Listen for messages from background
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'READ_PAGE') {
-    // Allow background to request current page content
-    sendResponse({
-      success: true,
-      data: {
-        url: window.location.href,
-        title: document.title,
-        content: extractPageContent()
-      }
+    // Allow background to request current page content using registry
+    extractCurrentPage().then(extracted => {
+      sendResponse({
+        success: true,
+        data: extracted
+      });
+    }).catch(error => {
+      sendResponse({
+        success: false,
+        error: error.message
+      });
     });
-    return true;
+    return true; // Will respond asynchronously
   }
 });
 
