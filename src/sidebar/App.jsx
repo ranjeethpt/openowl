@@ -77,7 +77,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="h-full bg-slate-50 flex flex-col">
       {/* Header with Tabs */}
       <header className="bg-owl-primary px-4 pt-3 pb-0 shadow-lg">
         {/* Logo and Title */}
@@ -124,7 +124,7 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {!isConfigured && currentView === 'settings' && (
           <div className="p-6 bg-owl-blue/10 border-b border-owl-blue/20">
             <p className="text-sm text-owl-blue font-semibold">👋 Welcome to OpenOwl!</p>
@@ -132,10 +132,12 @@ function App() {
           </div>
         )}
         {currentView === 'ask' && (
-          <Ask
-            messages={chatMessages}
-            onMessagesChange={setChatMessages}
-          />
+          <div className="flex flex-col flex-1 min-h-0">
+            <Ask
+              messages={chatMessages}
+              onMessagesChange={setChatMessages}
+            />
+          </div>
         )}
         {currentView === 'today' && (
           <Today

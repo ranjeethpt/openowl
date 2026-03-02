@@ -7,10 +7,13 @@ function Ask({ messages, onMessagesChange }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [showCancel, setShowCancel] = useState(false);
   const [tabContext, setTabContext] = useState(null);
   const [tabsLoading, setTabsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [todayStats, setTodayStats] = useState(null);
   const messagesEndRef = useRef(null);
+  const loadingTimers = useRef([]);
 
   // Auto-run if a new message is added with autoRun flag
   const processedAutoRunRef = useRef(null);
@@ -45,22 +48,27 @@ function Ask({ messages, onMessagesChange }) {
 
   // Loading message timer
   useEffect(() => {
-    let timers = [];
     if (loading) {
-      setLoadingMessage('Reading tabs...');
+      setLoadingMessage('Reading context...');
+      setShowCancel(false);
 
-      timers.push(setTimeout(() => {
-        setLoadingMessage('Thinking... (this may take a moment)');
-      }, 8000));
-
-      timers.push(setTimeout(() => {
-        setLoadingMessage('Still thinking... Local models can take 30-60s on CPU');
-      }, 20000));
+      loadingTimers.current = [
+        setTimeout(() => setLoadingMessage('Thinking...'), 8000),
+        setTimeout(() => setShowCancel(true), 10000),
+        setTimeout(() => setLoadingMessage('Still thinking... (local models can take 30–60s)'), 20000),
+        setTimeout(() => setLoadingMessage('Almost there...'), 45000)
+      ];
     } else {
       setLoadingMessage('');
+      setShowCancel(false);
+      loadingTimers.current.forEach(timer => clearTimeout(timer));
+      loadingTimers.current = [];
     }
 
-    return () => timers.forEach(t => clearTimeout(t));
+    return () => {
+      loadingTimers.current.forEach(timer => clearTimeout(timer));
+      loadingTimers.current = [];
+    };
   }, [loading]);
 
   // Scroll to bottom when new messages arrive
@@ -68,9 +76,10 @@ function Ask({ messages, onMessagesChange }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Load tab context on mount and listen for tab changes
+  // Load tab context and today stats on mount
   useEffect(() => {
     loadTabContext();
+    loadTodayStats();
 
     // Listen for tab updates from background
     const handleTabUpdate = (message) => {
@@ -104,6 +113,20 @@ function Ask({ messages, onMessagesChange }) {
       console.error('Error loading tab context:', error);
     } finally {
       setTabsLoading(false);
+    }
+  }
+
+  /**
+   * Load today's stats for context display
+   */
+  async function loadTodayStats() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_TODAY_STATS' });
+      if (response.success) {
+        setTodayStats(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading today stats:', error);
     }
   }
 
@@ -165,6 +188,9 @@ function Ask({ messages, onMessagesChange }) {
   function cancelRequest() {
     setLoading(false);
     setLoadingMessage('');
+    setShowCancel(false);
+    loadingTimers.current.forEach(timer => clearTimeout(timer));
+    loadingTimers.current = [];
     onMessagesChange(prev => [...prev, {
       role: 'error',
       text: 'Request cancelled'
@@ -189,13 +215,17 @@ function Ask({ messages, onMessagesChange }) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Tab Context Info */}
-      <div className="px-4 py-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
+    <div className="flex flex-col h-full" style={{ overflow: 'hidden' }}>
+      {/* Context Info */}
+      <div className="px-4 py-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
-          {tabContext && (
+          {tabContext && todayStats && (
             <span className="text-xs text-gray-600">
-              {tabsLoading ? '⟳ updating...' : `📚 ${tabContext.readable} tabs in context`}
+              {tabsLoading ? '⟳ updating...' : (
+                <>
+                  📚 {tabContext.readable} tabs · 📅 {todayStats.totalVisits} history · ⏱ {Math.round(todayStats.totalActiveTime / 60000)}m
+                </>
+              )}
             </span>
           )}
         </div>
@@ -221,38 +251,39 @@ function Ask({ messages, onMessagesChange }) {
         </div>
       </div>
 
-      {/* Quick Action Buttons - Only show when no messages */}
-      {messages.length === 0 && (
-        <div className="px-4 py-3 border-b border-gray-200">
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => handleQuickAction('Write my daily standup based on everything I worked on today across all my open tabs. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]')}
-              className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
-            >
-              ✍️ Write standup
-            </button>
-            <button
-              onClick={() => handleQuickAction('Look at all my open tabs and tell me what problem I\'m trying to solve. What connects them? What am I working on?')}
-              className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
-            >
-              🔗 Find connections
-            </button>
-            <button
-              onClick={() => handleQuickAction('Based on my open tabs and what I\'ve worked on today, what should I focus on right now? Be specific and reference what you can see.')}
-              className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
-            >
-              🎯 What to focus on?
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 ? (
-          <div className="text-center text-gray-500 mt-12">
-            <p className="text-lg font-medium text-owl-primary mb-2">Ask about your browser context</p>
-            <p className="text-sm text-gray-600">Questions across all your open tabs and work history</p>
+      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+        {/* Quick Action Buttons - Only show when no messages */}
+        {messages.length === 0 && (
+          <div className="px-4 py-3 border-b border-gray-200">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => handleQuickAction('Write my daily standup based on everything I worked on today across all my open tabs. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]')}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
+              >
+                ✍️ Write standup
+              </button>
+              <button
+                onClick={() => handleQuickAction('Look at all my open tabs and tell me what problem I\'m trying to solve. What connects them? What am I working on?')}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
+              >
+                🔗 Find connections
+              </button>
+              <button
+                onClick={() => handleQuickAction('Based on my open tabs and what I\'ve worked on today, what should I focus on right now? Be specific and reference what you can see.')}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
+              >
+                🎯 What to focus on?
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="p-4 space-y-4">
+          {messages.length === 0 ? (
+            <div className="text-center text-gray-500 mt-12">
+              <p className="text-lg font-medium text-owl-primary mb-2">Ask about your browser context</p>
+              <p className="text-sm text-gray-600">Questions across all your open tabs and work history</p>
 
             {error && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
@@ -285,7 +316,7 @@ function Ask({ messages, onMessagesChange }) {
                   {/* Context Info for AI messages */}
                   {msg.role === 'assistant' && msg.context && (
                     <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
-                      Used {msg.context.tabsUsed} of {msg.context.totalTabs} tabs · ~{msg.context.estimatedTokens} tokens
+                      Used {msg.context.tabsUsed} of {msg.context.totalTabs} tabs · {msg.context.historyEntries || 0} history entries · ~{msg.context.estimatedTokens} tokens
                     </div>
                   )}
                 </div>
@@ -313,7 +344,7 @@ function Ask({ messages, onMessagesChange }) {
                   </div>
                 </div>
                 {/* Cancel button appears after 10 seconds of thinking */}
-                {loadingMessage && loadingMessage.includes('Thinking') && (
+                {showCancel && (
                   <div className="flex justify-start px-2">
                     <button
                       onClick={cancelRequest}
@@ -330,10 +361,11 @@ function Ask({ messages, onMessagesChange }) {
             <div ref={messagesEndRef} />
           </>
         )}
+        </div>
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-gray-200 p-4">
+      <div className="border-t border-gray-200 p-4 flex-shrink-0">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}

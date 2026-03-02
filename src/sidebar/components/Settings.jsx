@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import Preferences from './Preferences';
+import HistoryImportStatus from './HistoryImportStatus';
 
 /**
  * API key configuration for each provider
@@ -488,6 +490,12 @@ function Settings({ onSave }) {
           {message.text}
         </div>
       )}
+
+      {/* Preferences Section */}
+      <Preferences />
+
+      {/* History Import Status */}
+      <HistoryImportStatus />
 
       {/* Privacy Notice */}
       <div className="mt-8 p-4 bg-gray-100 border border-gray-200 rounded-lg">

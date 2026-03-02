@@ -10,9 +10,12 @@ export default function Today({ onNavigateToAsk }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
+  const [showImportBanner, setShowImportBanner] = useState(false);
+  const [historyImport, setHistoryImport] = useState(null);
 
   useEffect(() => {
     loadTodayData();
+    checkHistoryImport();
   }, []);
 
   async function loadTodayData() {
@@ -42,6 +45,26 @@ export default function Today({ onNavigateToAsk }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function checkHistoryImport() {
+    try {
+      const result = await chrome.storage.local.get('historyImport');
+      if (result.historyImport && !result.historyImport.shown) {
+        setHistoryImport(result.historyImport);
+        setShowImportBanner(true);
+
+        // Mark as shown so never appears again
+        await chrome.storage.local.set({
+          historyImport: { ...result.historyImport, shown: true }
+        });
+
+        // Auto dismiss after 5 seconds
+        setTimeout(() => setShowImportBanner(false), 5000);
+      }
+    } catch (error) {
+      console.error('Error checking history import:', error);
     }
   }
 
@@ -152,7 +175,7 @@ export default function Today({ onNavigateToAsk }) {
   }
 
   function handleQuickAction(type) {
-    let prompt = '';
+    let prompt;
     switch (type) {
       case 'standup':
         prompt = 'Write my daily standup based on everything I worked on today across all my open tabs. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]';
@@ -216,6 +239,27 @@ export default function Today({ onNavigateToAsk }) {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-white">
+      {/* History Import Banner (one-time) */}
+      {showImportBanner && historyImport && (
+        <div className="mx-4 mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm text-gray-800 font-medium">
+              📦 Imported {historyImport.entriesImported} entries from your last 30 days of work history
+            </p>
+            <p className="text-xs text-gray-600 mt-1">
+              All data stays on your device. Never leaves Chrome.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowImportBanner(false)}
+            className="text-gray-400 hover:text-gray-600 text-sm flex-shrink-0"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Section 1: Today's Focus Card */}
       {summary && (
         <div className="p-4 bg-owl-blue/5 border-b border-owl-blue/10">

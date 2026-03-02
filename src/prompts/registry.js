@@ -45,42 +45,61 @@ export const PromptRegistry = {
    * General questions about open tabs and work
    */
   ask: {
-    version: '1.0.0',
-    description: 'General questions about open tabs and work',
+    version: '2.0.0',
+    description: 'General questions with full context (tabs + history + copies)',
 
     /**
      * @param {Object} context
      * @param {ExtractedContent[]} context.tabs - Open tabs
      * @param {number} context.tabCount - Tabs being used
      * @param {number} context.totalTabs - Total tabs open
-     * @param {Array} [context.dayLog] - Today's activity log
+     * @param {Array} [context.history] - Today's meaningful history
+     * @param {Array} [context.copies] - Copied snippets
      * @returns {PromptResult}
      */
     build: (context) => {
-      const { tabs = [], tabCount = 0, totalTabs = 0 } = context;
+      const { tabs = [], tabCount = 0, totalTabs = 0, history = [], copies = [] } = context;
 
-      const tabsContext = tabs.map((tab, i) =>
-        `[${tab.active ? 'ACTIVE TAB' : `Tab ${i + 1}`}] ${tab.title}
-URL: ${tab.url}
-Content:
-${tab.content}
-${tab.compressed ? '(content compressed)' : ''}`
-      ).join('\n\n---\n\n');
+      const tabsContext = tabs.length > 0
+        ? tabs.map((tab) =>
+            `[${tab.active ? 'ACTIVE TAB' : 'tab'}] ${tab.title}
+${tab.url}
+${tab.content || '(no content extracted)'}${tab.compressed ? ' (truncated)' : ''}`
+          ).join('\n---\n')
+        : '(no tabs)';
 
-      const system = `You are OpenOwl, an AI assistant built into the developer's browser.
+      const historyContext = history.length > 0
+        ? history.map(e =>
+            `- ${e.domain}: ${e.title}
+  Time: ${Math.round((e.activeTime || 0) / 60000)}m active${
+    e.copied && e.copied.length > 0 ? `\n  Copied: "${e.copied[0]}"` : ''
+  }`
+          ).join('\n')
+        : '';
 
-You have access to their open browser tabs to provide context-aware assistance.
+      const copiesContext = copies.length > 0
+        ? copies.map(c => `- "${c.snippet}" (${c.domain})`).join('\n')
+        : '';
 
-Open tabs (${tabCount} of ${totalTabs}):
+      const system = `You are OpenOwl, AI assistant
+built into the developer's Chrome browser.
+You have richer context than other AI tools.
 
+CURRENTLY OPEN (${tabCount} of ${totalTabs} tabs):
 ${tabsContext}
 
+${historyContext ? `TODAY'S WORK HISTORY (most time spent first):
+${historyContext}
+` : ''}
+${copiesContext ? `SNIPPETS COPIED FROM PAGES TODAY:
+${copiesContext}
+` : ''}
 Rules:
-• Be concise and specific
-• Reference actual tab content when answering
-• If something isn't in the context, say so honestly
-• You are talking to a developer
-• Never make up information not in the context`;
+- Reference BOTH tabs AND history in answers
+- Time spent = importance signal
+- Copied content = highest priority signal
+- Be specific, not generic
+- You are talking to a developer`;
 
       return {
         system,
@@ -487,7 +506,7 @@ export function listPrompts() {
 export function validateContext(name, context) {
   // Define expected context fields for each prompt
   const expectedFields = {
-    ask: ['tabs', 'tabCount', 'totalTabs'],
+    ask: ['tabs', 'tabCount', 'totalTabs', 'history', 'copies'],
     standup: ['todayLog'],
     summarizeTabs: ['tabs'],
     briefing: ['yesterdayLog'],

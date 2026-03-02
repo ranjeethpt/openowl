@@ -14,7 +14,8 @@
     "storage",
     "sidePanel",
     "scripting",
-    "alarms"
+    "alarms",
+    "history"
   ],
   "host_permissions": [
     "<all_urls>"
