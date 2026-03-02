@@ -71,6 +71,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleAnalyzePatterns(sendResponse);
       return true; // Async response
 
+    case 'GET_PREFERENCES':
+      handleGetPreferences(sendResponse);
+      return true; // Async response
+
+    case 'LOG_COPY':
+      handleLogCopy(message.data, sendResponse);
+      return true; // Async response
+
     default:
       console.warn('Unknown message type:', message.type);
       sendResponse({ error: 'Unknown message type' });
@@ -279,87 +287,111 @@ async function handleGetTodayStats(sendResponse) {
 }
 
 /**
- * Build smart context for AI question
- * Detects question type and selects/compresses relevant tabs
- * @param {string} question - User's question
- * @param {Array} tabs - All available tabs
- * @returns {Object} Context with selected tabs and metadata
+ * Build full context with tabs + history + copied snippets
+ * @param {string} question - The question being asked
+ * @returns {Promise<Object>} Full context object
  */
-function buildContextForQuestion(question, tabs) {
-  const lowerQuestion = question.toLowerCase();
-
-  // Step 1: Detect question type
-  let questionType = 'general';
-  if (lowerQuestion.match(/\b(this|current|here|this page)\b/)) {
-    questionType = 'current_page';
-  } else if (lowerQuestion.match(/\b(all|everything|tabs|open|all tabs)\b/)) {
-    questionType = 'all_tabs';
-  } else if (lowerQuestion.match(/\b(standup|yesterday|worked on|today|daily)\b/)) {
-    questionType = 'standup';
-  }
-
-  // Step 2: Select tabs by type
-  let selectedTabs;
-  const TOKEN_BUDGET = 4000;
-
-  switch (questionType) {
-    case 'current_page':
-      // Active tab only
-      selectedTabs = tabs.filter(t => t.active).slice(0, 1);
-      break;
-
-    case 'standup':
-      // No tabs needed for standup (uses day log instead)
-      selectedTabs = [];
-      break;
-
-    case 'all_tabs':
-      // All tabs, max 8
-      selectedTabs = tabs.slice(0, 8);
-      break;
-
-    case 'general':
-    default:
-      // Active tab + 2 most recent = max 3
-      const activeTab = tabs.find(t => t.active);
-      const otherTabs = tabs.filter(t => !t.active).slice(0, 2);
-      selectedTabs = activeTab ? [activeTab, ...otherTabs] : otherTabs;
-      break;
-  }
-
-  // Step 3: Compress content
-  selectedTabs = selectedTabs.map(tab => {
-    if (tab.extractionMethod === 'generic' && tab.content.length > 500) {
-      // Compress generic extractions to 500 chars
-      return {
-        ...tab,
-        content: tab.content.substring(0, 500) + '...',
-        compressed: true
-      };
-    }
-    return { ...tab, compressed: false };
+async function buildFullContext(question) {
+  // Step 1: Live tabs (Feature 2)
+  const tabsResult = await new Promise((resolve) => {
+    handleGetAllTabs(resolve);
   });
+  const allTabs = tabsResult.success ? (tabsResult.tabs || []) : [];
 
-  // Step 4: Apply token budget
-  let estimatedTokens = 0;
-  const finalTabs = [];
+  // Step 2: Today's history (Feature 3)
+  const history = await storage.getMeaningfulHistory(20);
 
-  for (const tab of selectedTabs) {
-    const tabTokens = Math.ceil(tab.content.length / 4);
-    if (estimatedTokens + tabTokens > TOKEN_BUDGET) {
-      break;
-    }
-    finalTabs.push(tab);
-    estimatedTokens += tabTokens;
+  // Step 3: Copied snippets (Feature 3)
+  const copies = await storage.getCopiedSnippets();
+
+  // Step 4: Question type detection
+  const q = question.toLowerCase();
+  let questionType = 'general';
+  if (q.match(/standup|yesterday|worked on|what did i/)) {
+    questionType = 'standup';
+  } else if (q.match(/this page|current|right here|open tab/)) {
+    questionType = 'current_page';
+  } else if (q.match(/all tabs|everything open|what.*open/)) {
+    questionType = 'all_tabs';
+  } else if (q.match(/focus|priority|next|should i|what.*work/)) {
+    questionType = 'focus';
+  } else if (q.match(/today|worked|did i|summary|recap/)) {
+    questionType = 'history';
   }
 
-  // Step 5: Return context
+  // Step 5: Select context by type
+  let selectedTabs;
+  let selectedHistory;
+
+  if (questionType === 'standup') {
+    selectedTabs = [];
+    selectedHistory = history; // full history
+  } else if (questionType === 'current_page') {
+    selectedTabs = allTabs.filter(t => t.active).slice(0, 1);
+    selectedHistory = [];
+  } else if (questionType === 'all_tabs') {
+    selectedTabs = allTabs.slice(0, 8);
+    selectedHistory = history.slice(0, 5);
+  } else if (questionType === 'focus') {
+    selectedTabs = allTabs.filter(t => t.active)
+      .concat(allTabs.filter(t => !t.active).slice(0, 2));
+    selectedHistory = history.slice(0, 10);
+  } else if (questionType === 'history') {
+    selectedTabs = [];
+    selectedHistory = history;
+  } else {
+    // general
+    selectedTabs = allTabs.filter(t => t.active)
+      .concat(allTabs.filter(t => !t.active).slice(0, 2));
+    selectedHistory = history.slice(0, 5);
+  }
+
+  // Step 6: Token budget (4000 tokens = ~16000 chars)
+  let totalChars = 0;
+  const BUDGET = 16000;
+
+  // Priority: active tab > copies > history > other tabs
+  const activeTab = selectedTabs.find(t => t.active);
+  if (activeTab) totalChars += (activeTab.content?.length || 0);
+
+  const snippetChars = copies
+    .map(c => c.snippet.length)
+    .reduce((a, b) => a + b, 0);
+  totalChars += snippetChars;
+
+  // Trim if over budget
+  const finalHistory = [];
+  for (const entry of selectedHistory) {
+    const entryChars = (entry.title?.length || 0) + 50;
+    if (totalChars + entryChars > BUDGET) break;
+    finalHistory.push(entry);
+    totalChars += entryChars;
+  }
+
+  const finalTabs = [];
+  for (const tab of selectedTabs) {
+    const tabChars = (tab.content?.length || 0);
+    if (totalChars + tabChars > BUDGET) {
+      // Include with truncated content
+      finalTabs.push({
+        ...tab,
+        content: tab.content?.slice(0, 300) + '...'
+      });
+    } else {
+      finalTabs.push(tab);
+      totalChars += tabChars;
+    }
+  }
+
   return {
     tabs: finalTabs,
-    tabCount: finalTabs.length,
-    totalTabCount: tabs.length,
+    history: finalHistory,
+    copies: copies.slice(0, 5),
     questionType,
-    estimatedTokens
+    tabsUsed: finalTabs.length,
+    totalTabs: allTabs.length,
+    historyEntries: finalHistory.length,
+    estimatedTokens: Math.round(totalChars / 4)
   };
 }
 
@@ -377,18 +409,10 @@ async function handleAskAI(data, sendResponse) {
       throw new Error('API key not configured. Please set it in Settings.');
     }
 
-    // Get all tabs if context is requested
+    // Build full context if requested
     let context = null;
     if (data.includeContext !== false) {
-      // Get all tabs
-      const tabsResponse = await new Promise((resolve) => {
-        handleGetAllTabs(resolve);
-      });
-
-      if (tabsResponse.success) {
-        // Build smart context
-        context = buildContextForQuestion(data.prompt, tabsResponse.tabs);
-      }
+      context = await buildFullContext(data.prompt);
     }
 
     // Build system prompt using prompt registry (if not overridden)
@@ -398,11 +422,13 @@ async function handleAskAI(data, sendResponse) {
       // Custom system prompt provided - use as-is
       systemPrompt = data.systemPrompt;
     } else if (context) {
-      // Use 'ask' prompt from registry with tab context
+      // Use 'ask' prompt from registry with full context
       const prompt = getPrompt('ask', {
         tabs: context.tabs,
-        tabCount: context.tabCount,
-        totalTabs: context.totalTabCount
+        tabCount: context.tabsUsed,
+        totalTabs: context.totalTabs,
+        history: context.history,
+        copies: context.copies
       });
       systemPrompt = prompt.system;
     } else {
@@ -425,8 +451,9 @@ async function handleAskAI(data, sendResponse) {
       data: {
         text: response,
         context: context ? {
-          tabsUsed: context.tabCount,
-          totalTabs: context.totalTabCount,
+          tabsUsed: context.tabsUsed,
+          totalTabs: context.totalTabs,
+          historyEntries: context.historyEntries,
           questionType: context.questionType,
           estimatedTokens: context.estimatedTokens
         } : null
@@ -447,6 +474,45 @@ async function handleGetPatterns(sendResponse) {
     sendResponse({ success: true, data: patterns });
   } catch (error) {
     console.error('Error getting patterns:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get preferences
+ */
+async function handleGetPreferences(sendResponse) {
+  try {
+    const preferences = await storage.getPreferences();
+    sendResponse({ success: true, data: preferences });
+  } catch (error) {
+    console.error('Error getting preferences:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Log copy event - update existing entry with copied snippet
+ */
+async function handleLogCopy(data, sendResponse) {
+  try {
+    const { url, snippet } = data;
+    const entries = await storage.getDayLog();
+
+    // Find most recent entry for this URL
+    const entry = entries
+      .reverse()
+      .find(e => e.url === url);
+
+    if (entry?.id) {
+      await storage.updateEntry(entry.id, {
+        copied: [...(entry.copied || []), snippet]
+      });
+    }
+
+    sendResponse({ success: true });
+  } catch (error) {
+    console.error('Error logging copy:', error);
     sendResponse({ success: false, error: error.message });
   }
 }
@@ -613,6 +679,79 @@ function analyzePatterns(entries) {
 }
 
 // ============================================
+// Chrome History Import
+// ============================================
+
+/**
+ * Import Chrome browsing history from last N days
+ * Filters using preferences (Never Track list, work domains only)
+ * @param {number} daysBack - Number of days to import (default 30)
+ * @returns {Promise<Object>} { imported, skipped } counts
+ */
+async function importChromeHistory(daysBack = 30) {
+  const prefs = await storage.getPreferences();
+  const startTime = Date.now() - (daysBack * 24 * 60 * 60 * 1000);
+
+  // Get history items
+  const items = await chrome.history.search({
+    text: '',
+    startTime,
+    maxResults: 10000
+  });
+
+  console.log(`[History Import] Found ${items.length} total history items`);
+
+  // Filter using preferences
+  const filtered = items.filter(item => {
+    try {
+      const domain = new URL(item.url).hostname;
+
+      // Skip non-http
+      if (!item.url.startsWith('http')) return false;
+
+      // Skip never-track domains
+      if (prefs.neverTrack.some(d => domain.includes(d))) {
+        return false;
+      }
+
+      // Skip if not work domain and visited only once
+      // (reduces noise from random one-off visits)
+      const isWorkDomain = prefs.alwaysTrack.some(d => domain.includes(d));
+      return !(!isWorkDomain && (item.visitCount || 0) < 2);
+    } catch {
+      return false; // skip malformed URLs
+    }
+  });
+
+  console.log(`[History Import] Filtered to ${filtered.length} work-related items`);
+
+  // Convert to day log entries
+  const entries = filtered.map(item => {
+    const url = new URL(item.url);
+    return {
+      url: item.url,
+      title: item.title || url.hostname,
+      domain: url.hostname,
+      content: '',
+      extractionType: 'history_import',
+      date: new Date(item.lastVisitTime).toISOString().split('T')[0],
+      visitedAt: item.lastVisitTime,
+      leftAt: null,
+      activeTime: 0,
+      totalTime: 0,
+      scrollDepth: 0,
+      copied: [],
+      revisited: false,
+      visitCount: item.visitCount || 1,
+      sessionId: 'history'
+    };
+  });
+
+  // Import in batch
+  return storage.importHistoryEntries(entries);
+}
+
+// ============================================
 // Extension Lifecycle Events
 // ============================================
 
@@ -626,6 +765,26 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     console.log('IndexedDB initialized');
   } catch (error) {
     console.error('Error initializing IndexedDB:', error);
+  }
+
+  // Auto-import Chrome history on first install
+  if (details.reason === 'install') {
+    console.log('[OpenOwl] First install detected - importing history...');
+    try {
+      const result = await importChromeHistory(30);
+      await chrome.storage.local.set({
+        historyImport: {
+          lastImported: new Date().toISOString(),
+          entriesImported: result.imported,
+          daysImported: 30,
+          shown: false  // banner not shown yet
+        }
+      });
+      console.log('[OpenOwl] History imported:', result);
+    } catch (err) {
+      console.error('[OpenOwl] History import failed:', err);
+      // Fail silently - not critical
+    }
   }
 
   // Set up periodic cleanup alarm

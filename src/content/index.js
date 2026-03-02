@@ -42,16 +42,6 @@ function startActiveTimeTracking() {
 }
 
 /**
- * Stop active time tracking
- */
-function stopActiveTimeTracking() {
-  if (activeTimeInterval) {
-    clearInterval(activeTimeInterval);
-    activeTimeInterval = null;
-  }
-}
-
-/**
  * Track scroll depth
  */
 function updateScrollDepth() {
@@ -81,6 +71,41 @@ async function logPageVisit() {
   }
 
   try {
+    // Get preferences to check filters
+    const prefsResponse = await chrome.runtime.sendMessage({ type: 'GET_PREFERENCES' });
+    if (!prefsResponse || !prefsResponse.success) {
+      console.debug('Could not get preferences, skipping filters');
+      // Continue without filters if preferences unavailable
+    } else {
+      const prefs = prefsResponse.data;
+      const hostname = window.location.hostname;
+
+      // Check Never Track list
+      if (prefs.neverTrack.some(d => hostname.includes(d))) {
+        console.log('[DayLog] Domain in never track list, skipping:', hostname);
+        return;
+      }
+
+      // Check work hours
+      if (prefs.workHours.enabled) {
+        const hour = new Date().getHours();
+        const [startH] = prefs.workHours.start.split(':').map(Number);
+        const [endH] = prefs.workHours.end.split(':').map(Number);
+        if (hour < startH || hour >= endH) {
+          console.log('[DayLog] Outside work hours, skipping:', hour);
+          return;
+        }
+      }
+
+      // Check Always Track vs time threshold
+      const isAlwaysTrack = prefs.alwaysTrack.some(d => hostname.includes(d));
+      if (!isAlwaysTrack && activeTime < 30000) {
+        // Not in always track list and less than 30 seconds active time
+        console.log('[DayLog] Not always track and < 30s active time, skipping:', hostname);
+        return;
+      }
+    }
+
     // Use registry to extract page content
     const extracted = await extractCurrentPage();
 
@@ -168,11 +193,18 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 
 // Track copy events
-document.addEventListener('copy', (e) => {
-  const selection = window.getSelection().toString().trim();
-  if (selection && selection.length > 10 && selection.length < 500) {
+document.addEventListener('copy', async () => {
+  try {
+    const text = window.getSelection()?.toString()?.trim();
+    if (!text || text.length < 20) return;
+
+    // Don't copy password fields
+    const active = document.activeElement;
+    if (active?.type === 'password') return;
+
+    // Store locally for current page
     copiedTexts.push({
-      text: selection.substring(0, 200), // Limit to 200 chars
+      text: text.substring(0, 200), // Limit to 200 chars
       timestamp: Date.now()
     });
 
@@ -180,6 +212,19 @@ document.addEventListener('copy', (e) => {
     if (copiedTexts.length > 5) {
       copiedTexts.shift();
     }
+
+    // Send to background to update existing entry
+    chrome.runtime.sendMessage({
+      type: 'LOG_COPY',
+      data: {
+        url: location.href,
+        snippet: text.slice(0, 150)
+      }
+    }).catch(() => {
+      // Extension might be reloading, ignore
+    });
+  } catch (error) {
+    // Ignore errors
   }
 });
 

@@ -16,7 +16,7 @@ const DAY_LOGS_STORE = 'dayLogs';
  */
 async function initDB() {
   return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
+    upgrade(db) {
       // Create day logs store if it doesn't exist
       if (!db.objectStoreNames.contains(DAY_LOGS_STORE)) {
         const store = db.createObjectStore(DAY_LOGS_STORE, {
@@ -77,6 +77,66 @@ export async function savePatterns(patterns) {
 export async function getPatterns() {
   const result = await chrome.storage.local.get('patterns');
   return result.patterns || [];
+}
+
+/**
+ * Save preferences to chrome.storage.local
+ * @param {Object} preferences - User preferences object
+ * @returns {Promise<void>}
+ */
+export async function savePreferences(preferences) {
+  return chrome.storage.local.set({ preferences });
+}
+
+/**
+ * Get preferences from chrome.storage.local
+ * @returns {Promise<Object>} Preferences object with defaults
+ */
+export async function getPreferences() {
+  const result = await chrome.storage.local.get('preferences');
+  return result.preferences || {
+    alwaysTrack: [
+      'github.com',
+      'linear.app',
+      'atlassian.net',
+      'notion.so',
+      'mail.google.com',
+      'calendar.google.com',
+      'docs.google.com',
+      'figma.com',
+      'vercel.com',
+      'aws.amazon.com',
+      'localhost'
+    ],
+    neverTrack: [
+      'youtube.com',
+      'twitter.com',
+      'x.com',
+      'instagram.com',
+      'facebook.com',
+      'netflix.com',
+      'reddit.com',
+      'tiktok.com',
+      'twitch.tv',
+      'spotify.com'
+    ],
+    workHours: {
+      enabled: true,
+      start: '08:00',
+      end: '19:00'
+    },
+    standupFormat: 'bullets', // bullets|slack|prose
+    logRetentionDays: 30
+  };
+}
+
+/**
+ * Get standup format preference
+ * @returns {Promise<string>} Format string (bullets|slack|prose)
+ */
+export async function getStandupFormat() {
+  const prefs = await getPreferences();
+  return prefs.standupFormat || 'bullets';
 }
 
 // ============================================
@@ -222,6 +282,53 @@ export async function cleanupOldEntries(daysToKeep = 30) {
 }
 
 /**
+ * Import history entries in batch
+ * Used for Chrome history import on first install
+ * @param {Array} entries - Array of history entries to import
+ * @returns {Promise<Object>} { imported, skipped } counts
+ */
+export async function importHistoryEntries(entries) {
+  if (!entries || entries.length === 0) {
+    return { imported: 0, skipped: 0 };
+  }
+
+  const db = await initDB();
+  let imported = 0;
+  let skipped = 0;
+
+  for (const entry of entries) {
+    try {
+      // Check if URL already exists for that date
+      const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+      const index = tx.store.index('url');
+      const existingEntries = await index.getAll(entry.url);
+
+      // Check if any existing entry has the same date
+      const dateExists = existingEntries.some(existing => existing.date === entry.date);
+
+      if (dateExists) {
+        skipped++;
+        continue;
+      }
+
+      // Add entry with source marker
+      await db.add(DAY_LOGS_STORE, {
+        ...entry,
+        source: 'history_import'
+      });
+
+      imported++;
+    } catch (error) {
+      console.warn('[History Import] Failed to import entry:', entry.url, error);
+      skipped++;
+    }
+  }
+
+  console.log(`[History Import] Complete: ${imported} imported, ${skipped} skipped`);
+  return { imported, skipped };
+}
+
+/**
  * Get today's statistics
  * @returns {Promise<Object>} { totalVisits, uniquePages, totalActiveTime, topDomains }
  */
@@ -260,4 +367,70 @@ export async function getTodayStats() {
     totalActiveTime,
     topDomains
   };
+}
+
+/**
+ * Get meaningful history for AI context
+ * Filters and sorts by importance (active time)
+ * @param {number} limit - Max entries to return (default 20)
+ * @returns {Promise<Array>} Filtered and sorted entries
+ */
+export async function getMeaningfulHistory(limit = 20) {
+  const entries = await getDayLog();
+  const preferences = await getPreferences();
+
+  // Filter meaningful entries
+  const filtered = entries.filter(entry => {
+    // Must have meaningful active time (>5 seconds)
+    if (!entry.activeTime || entry.activeTime < 5000) return false;
+
+    // Skip internal URLs
+    if (!entry.url ||
+        entry.url.startsWith('chrome://') ||
+        entry.url.startsWith('chrome-extension://') ||
+        entry.url.startsWith('about:')) {
+      return false;
+    }
+
+    // Skip never-track domains
+    const hostname = entry.domain || '';
+    return !preferences.neverTrack.some(d => hostname.includes(d));
+
+
+  });
+
+  // Sort by active time descending (most important first)
+  filtered.sort((a, b) => (b.activeTime || 0) - (a.activeTime || 0));
+
+  // Return top entries
+  return filtered.slice(0, limit);
+}
+
+/**
+ * Get all copied snippets from today
+ * @returns {Promise<Array>} Array of {snippet, domain, url, visitedAt}
+ */
+export async function getCopiedSnippets() {
+  const entries = await getDayLog();
+
+  // Find all entries with copied content
+  const snippets = [];
+
+  for (const entry of entries) {
+    if (entry.copied && Array.isArray(entry.copied) && entry.copied.length > 0) {
+      for (const snippet of entry.copied) {
+        snippets.push({
+          snippet,
+          domain: entry.domain,
+          url: entry.url,
+          visitedAt: entry.visitedAt
+        });
+      }
+    }
+  }
+
+  // Sort by visitedAt descending (most recent first)
+  snippets.sort((a, b) => (b.visitedAt || 0) - (a.visitedAt || 0));
+
+  return snippets;
 }
