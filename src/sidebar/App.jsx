@@ -11,11 +11,40 @@ function App() {
   const [currentView, setCurrentView] = useState('settings');
   const [isConfigured, setIsConfigured] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [chatMessages, setChatMessages] = useState([]);
 
   // Check if app is configured on mount
   useEffect(() => {
     checkConfiguration();
+    checkChatAutoClear();
   }, []);
+
+  async function checkChatAutoClear() {
+    try {
+      const { lastChatDate } = await chrome.storage.local.get('lastChatDate');
+      const today = new Date().toDateString();
+
+      if (lastChatDate && lastChatDate !== today) {
+        // Clear chat messages (they will be passed to Ask component)
+        setChatMessages([]);
+      } else {
+        // Load messages from storage if they exist
+        const { messages } = await chrome.storage.local.get('messages');
+        if (messages) setChatMessages(messages);
+      }
+
+      await chrome.storage.local.set({ lastChatDate: today });
+    } catch (error) {
+      console.error('Error auto-clearing chat:', error);
+    }
+  }
+
+  // Update storage whenever chatMessages change
+  useEffect(() => {
+    if (!isLoading) {
+      chrome.storage.local.set({ messages: chatMessages });
+    }
+  }, [chatMessages, isLoading]);
 
   async function checkConfiguration() {
     try {
@@ -102,8 +131,23 @@ function App() {
             <p className="text-xs text-gray-600 mt-1">Connect your AI to get started. Takes 30 seconds.</p>
           </div>
         )}
-        {currentView === 'ask' && <Ask />}
-        {currentView === 'today' && <Today onNavigateToAsk={() => setCurrentView('ask')} />}
+        {currentView === 'ask' && (
+          <Ask
+            messages={chatMessages}
+            onMessagesChange={setChatMessages}
+          />
+        )}
+        {currentView === 'today' && (
+          <Today
+            onNavigateToAsk={(prompt) => {
+              setCurrentView('ask');
+              if (prompt) {
+                // Pre-fill and auto-run in Ask will be handled by passing message
+                setChatMessages(prev => [...prev, { role: 'user', text: prompt, autoRun: true }]);
+              }
+            }}
+          />
+        )}
         {currentView === 'settings' && <Settings onSave={checkConfiguration} />}
       </main>
     </div>

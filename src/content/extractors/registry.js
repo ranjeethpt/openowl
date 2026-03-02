@@ -129,3 +129,36 @@ export function testUrl(url) {
   const extractor = getExtractor(url);
   return extractor.name;
 }
+
+/**
+ * Get display name for a domain
+ * @param {string} domain
+ * @returns {string} Human-readable site name
+ */
+export function getDisplayName(domain) {
+  if (!domain) return 'Unknown';
+
+  try {
+    // Mock URL for matching
+    const url = `https://${domain}`;
+
+    // Try to find a site-specific extractor
+    for (const extractor of EXTRACTORS) {
+      if (extractor.canHandle(url)) {
+        return extractor.name;
+      }
+    }
+
+    // Default: clean domain (remove common parts)
+    let clean = domain
+      .replace(/^www\./, '')
+      .replace(/\.(com|net|org|io|app|so|gov|edu)$/, '')
+      .split('.')[0];
+
+    // Capitalize first letter
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+
+  } catch {
+    return domain;
+  }
+}
