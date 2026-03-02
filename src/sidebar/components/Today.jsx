@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getDisplayName } from '../../content/extractors/registry.js';
 
 /**
  * Today tab - Clean, focused view of today's work
@@ -60,7 +61,12 @@ export default function Today({ onNavigateToAsk }) {
   }
 
   function formatTimestamp(timestamp) {
-    const date = new Date(timestamp);
+    const tsNumber = Number(timestamp);
+    const date = new Date(tsNumber);
+    const isValid = !isNaN(date.getTime());
+
+    if (!isValid) return 'Recently';
+
     return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -115,26 +121,54 @@ export default function Today({ onNavigateToAsk }) {
       .map(([domain, time]) => ({ domain, time }));
   }
 
-  function groupByHour() {
+  function getHourlyGroups() {
+    if (dayLog.length === 0) return [];
+
+    // Filter by activeTime > 3000 (3 seconds) to skip accidental clicks
+    const filteredLog = dayLog.filter(entry => (entry.activeTime || 0) > 3000);
+
     const groups = {};
-    dayLog.forEach(entry => {
-      const hour = new Date(entry.visitedAt).getHours();
-      const hourKey = `${hour}:00`;
-      if (!groups[hourKey]) {
-        groups[hourKey] = [];
+    filteredLog.forEach(entry => {
+      const tsNumber = Number(entry.visitedAt);
+      const date = new Date(tsNumber);
+      if (isNaN(date.getTime())) return;
+
+      const hour = date.getHours();
+      if (!groups[hour]) {
+        groups[hour] = [];
       }
-      groups[hourKey].push(entry);
+      groups[hour].push(entry);
     });
 
     return Object.entries(groups)
-      .sort((a, b) => parseInt(b[0]) - parseInt(a[0]))
-      .map(([hour, entries]) => ({ hour, entries }));
+      .sort((a, b) => parseInt(b[0]) - parseInt(a[0])) // Descending (most recent first)
+      .map(([hour, entries]) => {
+        const h = parseInt(hour);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const displayHour = h % 12 || 12;
+        const hourStr = `${displayHour}:00 ${ampm}`;
+        return { hour: hourStr, entries };
+      });
   }
 
-  function handleQuickAction(action) {
-    // Navigate to Ask tab - parent component will handle the switch
+  function handleQuickAction(type) {
+    let prompt = '';
+    switch (type) {
+      case 'standup':
+        prompt = 'Write my daily standup based on everything I worked on today across all my open tabs. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]';
+        break;
+      case 'summary':
+        prompt = 'Give me a detailed summary of my workday based on my browsing history. What did I achieve? What were the main themes? Group by activity type.';
+        break;
+      case 'focus':
+        prompt = 'Based on my open tabs and what I\'ve worked on today, what should I focus on right now? Be specific and reference what you can see.';
+        break;
+      default:
+        prompt = '';
+    }
+
     if (onNavigateToAsk) {
-      onNavigateToAsk(action);
+      onNavigateToAsk(prompt);
     }
   }
 
@@ -178,60 +212,88 @@ export default function Today({ onNavigateToAsk }) {
   const summary = generateSmartSummary();
   const domainsByTime = getDomainsByTime();
   const maxTime = domainsByTime[0]?.time || 1;
-  const hourlyGroups = groupByHour();
+  const hourlyGroups = getHourlyGroups();
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      {/* Section 1: Smart Summary Card */}
+    <div className="flex flex-col h-full overflow-y-auto bg-white">
+      {/* Section 1: Today's Focus Card */}
       {summary && (
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            Today's Focus
-          </h3>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+        <div className="p-4 bg-owl-blue/5 border-b border-owl-blue/10">
+          <div className="flex items-center justify-between mb-0.5">
+            <h2 className="font-semibold text-gray-900">
+              Today's Focus
+            </h2>
+            <button
+              onClick={loadTodayData}
+              className="text-gray-400 hover:text-owl-blue transition-colors text-sm"
+              title="Refresh"
+            >
+              🔄
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            {new Date().toLocaleDateString('en-AU', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long'
+            })}
+          </p>
+
+          <div className="bg-white border border-owl-blue/10 rounded-lg p-3 space-y-3 shadow-sm">
             {/* Main focus */}
             <div>
-              <div className="text-sm text-gray-700">
-                🎯 <span className="font-medium">Main focus:</span>{' '}
-                {summary.topDomain.domain}
+              <div className="text-sm text-gray-700 flex items-center gap-2">
+                <span className="text-base">🎯</span>
+                <span className="font-semibold">{getDisplayName(summary.topDomain.domain)}</span>
               </div>
-              <div className="text-xs text-gray-500 ml-5">
-                {formatTime(summary.topDomain.time)} active
+              <div className="text-xs text-gray-500 ml-6">
+                Main focus today ({formatTime(summary.topDomain.time)} active)
               </div>
             </div>
 
             {/* Research */}
             {summary.researchDomains.length > 0 && (
               <div>
-                <div className="text-sm text-gray-700">
-                  📚 <span className="font-medium">Also researched:</span>
+                <div className="text-sm text-gray-700 flex items-center gap-2">
+                  <span className="text-base">🔍</span>
+                  <span className="font-medium text-gray-600">Also researched:</span>
                 </div>
-                <div className="text-xs text-gray-500 ml-5">
-                  {summary.researchDomains.map(d => d.domain).join(', ')}
+                <div className="text-xs text-gray-500 ml-6">
+                  {summary.researchDomains.map(d => getDisplayName(d.domain)).join(', ')}
                 </div>
               </div>
             )}
 
             {/* Email check */}
             {summary.emailEntry && (
-              <div className="text-sm text-gray-700">
-                📬 Checked email at {formatTimestamp(summary.emailEntry.visitedAt)}
-                {summary.emailEntry.activeTime > 0 && (
-                  <span className="text-xs text-gray-500">
-                    {' '}({formatTime(summary.emailEntry.activeTime)})
-                  </span>
-                )}
+              <div className="text-xs text-gray-600 flex items-center gap-2 ml-1">
+                <span>📬</span>
+                <span>Checked email at {formatTimestamp(summary.emailEntry.visitedAt)}</span>
               </div>
             )}
           </div>
 
-          {/* Standup button */}
-          <button
-            onClick={() => handleQuickAction('standup')}
-            className="mt-3 w-full bg-owl-blue text-white text-sm py-2 px-3 rounded hover:bg-owl-blue/90 transition"
-          >
-            ✍️ Write standup from today
-          </button>
+          {/* Quick Actions */}
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <button
+              onClick={() => handleQuickAction('standup')}
+              className="bg-white border border-gray-200 text-gray-700 text-xs py-2 px-2 rounded hover:border-owl-blue hover:text-owl-blue transition shadow-sm flex items-center justify-center gap-1"
+            >
+              <span>✍️</span> Write standup
+            </button>
+            <button
+              onClick={() => handleQuickAction('summary')}
+              className="bg-white border border-gray-200 text-gray-700 text-xs py-2 px-2 rounded hover:border-owl-blue hover:text-owl-blue transition shadow-sm flex items-center justify-center gap-1"
+            >
+              <span>📊</span> Day summary
+            </button>
+            <button
+              onClick={() => handleQuickAction('focus')}
+              className="col-span-2 bg-white border border-gray-200 text-gray-700 text-xs py-2 px-2 rounded hover:border-owl-blue hover:text-owl-blue transition shadow-sm flex items-center justify-center gap-1"
+            >
+              <span>🎯</span> What to focus on?
+            </button>
+          </div>
         </div>
       )}
 
@@ -274,7 +336,7 @@ export default function Today({ onNavigateToAsk }) {
                 <div key={i}>
                   <div className="flex items-center justify-between text-xs mb-1">
                     <span className="text-gray-700 truncate flex-1">
-                      {item.domain}
+                      {getDisplayName(item.domain)}
                     </span>
                     <span className="text-gray-500 ml-2">
                       {formatTime(item.time)}
@@ -304,28 +366,38 @@ export default function Today({ onNavigateToAsk }) {
         </button>
 
         {timelineExpanded && (
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-3">
             {hourlyGroups.map((group, i) => (
-              <details key={i} className="group">
-                <summary className="cursor-pointer list-none">
-                  <div className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
-                    <span className="text-sm font-medium text-gray-700">
-                      {group.hour.padStart(2, '0')} ({group.entries.length} visits)
+              <details key={i} className="group border border-gray-100 rounded-lg overflow-hidden">
+                <summary className="cursor-pointer list-none bg-gray-50 p-2.5 flex items-center justify-between hover:bg-gray-100 transition-colors">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-700">
+                      {group.hour}
                     </span>
-                    <span className="text-gray-400 group-open:rotate-90 transition-transform">
-                      ▶
+                    <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full">
+                      {group.entries.length} visits
                     </span>
                   </div>
+                  <span className="text-xs text-gray-400 group-open:rotate-90 transition-transform">
+                    ▶
+                  </span>
                 </summary>
-                <div className="mt-1 ml-3 pl-3 border-l-2 border-gray-200 space-y-1">
+                <div className="bg-white divide-y divide-gray-50">
                   {group.entries.map((entry, j) => (
                     <div
                       key={j}
-                      className="text-xs text-gray-600 py-1"
+                      className="px-3 py-2 hover:bg-slate-50 transition-colors"
                     >
-                      <div className="truncate">{entry.title}</div>
-                      <div className="text-gray-400">
-                        {entry.domain} • {formatTimestamp(entry.visitedAt)}
+                      <div className="text-xs font-medium text-gray-800 truncate mb-0.5">
+                        {entry.title}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="text-[10px] text-gray-400 truncate flex-1">
+                          {getDisplayName(entry.domain)} • {formatTimestamp(entry.visitedAt)}
+                        </div>
+                        <div className="text-[10px] font-mono text-gray-400 ml-2">
+                          {formatTime(entry.activeTime)}
+                        </div>
                       </div>
                     </div>
                   ))}

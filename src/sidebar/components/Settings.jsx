@@ -418,6 +418,13 @@ function Settings({ onSave }) {
           <p className="mt-1 text-xs text-gray-500">
             Make sure Ollama is running at this URL
           </p>
+          <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
+            <p className="font-semibold mb-1">Getting a 403 error?</p>
+            <p className="mb-1">Restart Ollama with CORS allowed for the extension:</p>
+            <code className="block bg-blue-100 p-1 rounded font-mono text-[10px]">
+              OLLAMA_ORIGINS="chrome-extension://*" ollama serve
+            </code>
+          </div>
           <p className="mt-2 text-xs text-gray-600">
             Don't have Ollama? <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer" className="text-owl-blue hover:underline">Download free at ollama.ai</a>
           </p>

@@ -14,7 +14,7 @@ export class AtlassianExtractor extends BaseSiteExtractor {
   }
 
   get name() {
-    return 'Atlassian';
+    return 'Jira/Confluence';
   }
 
   extract() {

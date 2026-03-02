@@ -637,13 +637,19 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // ============================================
 
 /**
- * Notify sidebar when tabs change
+ * Notify sidebar when tabs change (debounced)
  */
+let notifyTimeout = null;
 function notifyTabsChanged() {
-  // Send message to sidebar (it will ignore if not listening)
-  chrome.runtime.sendMessage({ type: 'TABS_CHANGED' }).catch(() => {
-    // Sidebar might not be open, ignore error
-  });
+  if (notifyTimeout) clearTimeout(notifyTimeout);
+
+  notifyTimeout = setTimeout(() => {
+    // Send message to sidebar (it will ignore if not listening)
+    chrome.runtime.sendMessage({ type: 'TABS_CHANGED' }).catch(() => {
+      // Sidebar might not be open, ignore error
+    });
+    notifyTimeout = null;
+  }, 500); // Debounce for 500ms
 }
 
 // Notify when tabs are created
@@ -659,9 +665,14 @@ chrome.tabs.onRemoved.addListener(() => {
 // Notify when tabs are updated (URL changes, etc)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   // Only notify on significant changes (URL or title changes)
-  if (changeInfo.url || changeInfo.title) {
+  if (changeInfo.status === 'complete' || changeInfo.url || changeInfo.title) {
     notifyTabsChanged();
   }
+});
+
+// Notify when active tab changes
+chrome.tabs.onActivated.addListener(() => {
+  notifyTabsChanged();
 });
 
 // ============================================

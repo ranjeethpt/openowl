@@ -3,14 +3,65 @@ import React, { useState, useEffect, useRef } from 'react';
 /**
  * Ask component - AI chat with browser context awareness
  */
-function Ask() {
-  const [messages, setMessages] = useState([]);
+function Ask({ messages, onMessagesChange }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const [tabContext, setTabContext] = useState(null);
   const [tabsLoading, setTabsLoading] = useState(false);
   const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
+
+  // Auto-run if a new message is added with autoRun flag
+  const processedAutoRunRef = useRef(null);
+
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (
+      lastMessage &&
+      lastMessage.role === 'user' &&
+      lastMessage.autoRun &&
+      !loading &&
+      processedAutoRunRef.current !== lastMessage.text
+    ) {
+      // Mark as processed immediately to prevent double run
+      processedAutoRunRef.current = lastMessage.text;
+
+      // Trigger AI
+      askAI(lastMessage.text);
+
+      // Clean up autoRun flag in state after a tiny delay to allow first render
+      // This is still needed to sync back to App.jsx
+      setTimeout(() => {
+        const updatedMessages = [...messages];
+        const lastMsgIndex = updatedMessages.length - 1;
+        if (updatedMessages[lastMsgIndex] && updatedMessages[lastMsgIndex].autoRun) {
+          updatedMessages[lastMsgIndex] = { ...updatedMessages[lastMsgIndex], autoRun: false };
+          onMessagesChange(updatedMessages);
+        }
+      }, 0);
+    }
+  }, [messages, loading, onMessagesChange]);
+
+  // Loading message timer
+  useEffect(() => {
+    let timers = [];
+    if (loading) {
+      setLoadingMessage('Reading tabs...');
+
+      timers.push(setTimeout(() => {
+        setLoadingMessage('Thinking... (this may take a moment)');
+      }, 8000));
+
+      timers.push(setTimeout(() => {
+        setLoadingMessage('Still thinking... Local models can take 30-60s on CPU');
+      }, 20000));
+    } else {
+      setLoadingMessage('');
+    }
+
+    return () => timers.forEach(t => clearTimeout(t));
+  }, [loading]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -62,9 +113,12 @@ function Ask() {
   async function askAI(question) {
     if (!question.trim()) return;
 
-    // Add user message
-    const userMessage = { role: 'user', text: question };
-    setMessages(prev => [...prev, userMessage]);
+    // Add user message if not already there (autoRun case adds it first)
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.text !== question || lastMessage.role !== 'user') {
+      onMessagesChange(prev => [...prev, { role: 'user', text: question }]);
+    }
+
     setInput('');
     setLoading(true);
     setError(null);
@@ -87,7 +141,7 @@ function Ask() {
           text: response.data.text,
           context: response.data.context
         };
-        setMessages(prev => [...prev, aiMessage]);
+        onMessagesChange(prev => [...prev, aiMessage]);
       } else {
         throw new Error(response.error || 'Failed to get response');
       }
@@ -96,13 +150,25 @@ function Ask() {
       setError(error.message);
 
       // Show error message in chat
-      setMessages(prev => [...prev, {
+      onMessagesChange(prev => [...prev, {
         role: 'error',
         text: `Error: ${error.message}`
       }]);
     } finally {
       setLoading(false);
     }
+  }
+
+  /**
+   * Cancel current request
+   */
+  function cancelRequest() {
+    setLoading(false);
+    setLoadingMessage('');
+    onMessagesChange(prev => [...prev, {
+      role: 'error',
+      text: 'Request cancelled'
+    }]);
   }
 
   /**
@@ -125,11 +191,25 @@ function Ask() {
   return (
     <div className="flex flex-col h-full">
       {/* Tab Context Info */}
-      {tabContext && (
-        <div className="px-4 py-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
-          <span className="text-xs text-gray-600">
-            {tabsLoading ? '⟳ updating...' : `📚 ${tabContext.readable} tabs in context`}
-          </span>
+      <div className="px-4 py-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {tabContext && (
+            <span className="text-xs text-gray-600">
+              {tabsLoading ? '⟳ updating...' : `📚 ${tabContext.readable} tabs in context`}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {messages.length > 0 && (
+            <button
+              onClick={() => onMessagesChange([])}
+              className="text-xs text-gray-400 hover:text-red-400 transition-colors flex items-center gap-1"
+              title="Clear chat"
+            >
+              <span>🗑️</span>
+              <span>Clear</span>
+            </button>
+          )}
           <button
             onClick={loadTabContext}
             disabled={tabsLoading}
@@ -139,7 +219,7 @@ function Ask() {
             🔄
           </button>
         </div>
-      )}
+      </div>
 
       {/* Quick Action Buttons - Only show when no messages */}
       {messages.length === 0 && (
@@ -214,12 +294,36 @@ function Ask() {
 
             {/* Loading indicator */}
             {loading && (
-              <div className="flex justify-start">
-                <div className="bg-white border border-gray-200 px-4 py-3 rounded-lg">
-                  <div className="text-sm text-gray-500">
-                    {tabContext ? `Reading ${tabContext.readable} tabs...` : 'Thinking...'}
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-start">
+                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-lg flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-owl-blue rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-owl-blue rounded-full animate-bounce delay-75"></div>
+                      <div className="w-2 h-2 bg-owl-blue rounded-full animate-bounce delay-150"></div>
+                      <span className="text-sm text-gray-500 ml-1">
+                        {loadingMessage || 'Thinking...'}
+                      </span>
+                    </div>
+                    {loadingMessage && loadingMessage.includes('Thinking') && (
+                      <div className="text-[10px] text-gray-400 italic">
+                        Local models can be slow on CPU
+                      </div>
+                    )}
                   </div>
                 </div>
+                {/* Cancel button appears after 10 seconds of thinking */}
+                {loadingMessage && loadingMessage.includes('Thinking') && (
+                  <div className="flex justify-start px-2">
+                    <button
+                      onClick={cancelRequest}
+                      className="text-xs text-red-400 hover:text-red-500 transition-colors flex items-center gap-1"
+                    >
+                      <span>✕</span>
+                      <span>Cancel</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

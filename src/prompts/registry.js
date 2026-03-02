@@ -17,6 +17,8 @@
  * 4. Submit PR with before/after examples
  */
 
+import { getDisplayName } from '../content/extractors/registry.js';
+
 /**
  * @typedef {Object} ExtractedContent
  * @property {string} url
@@ -116,10 +118,11 @@ Rules:
         });
 
         return Object.entries(byDomain).map(([domain, entries]) => {
+          const displayName = getDisplayName(domain);
           const titles = entries.map(e => e.title).slice(0, 3);
           const timeSpent = entries.reduce((sum, e) => sum + (e.activeTime || 0), 0);
           const timeStr = timeSpent > 0 ? ` (${Math.round(timeSpent / 60000)}m active)` : '';
-          return `- ${domain}: ${titles.join(', ')}${timeStr}`;
+          return `- ${displayName}: ${titles.join(', ')}${timeStr}`;
         }).join('\n');
       };
 
@@ -170,41 +173,64 @@ Rules:
   summarizeTabs: {
     version: '1.0.0',
     description: 'Summarize what developer has open',
+    // ...
+  },
+
+  /**
+   * Day summary based on activity
+   */
+  summary: {
+    version: '1.0.0',
+    description: 'A summary of the day\'s work',
 
     /**
      * @param {Object} context
-     * @param {ExtractedContent[]} context.tabs - All open tabs
+     * @param {Array} context.todayLog - Today's day log entries
+     * @param {Object} context.todayStats - Today's statistics
      * @returns {PromptResult}
      */
     build: (context) => {
-      const { tabs = [] } = context;
+      const { todayLog = [], todayStats = {} } = context;
 
-      const tabsList = tabs.map((tab, i) =>
-        `${i + 1}. ${tab.title}
-   ${tab.content.substring(0, 200)}${tab.content.length > 200 ? '...' : ''}`
-      ).join('\n\n');
+      const formatLog = (log) => {
+        if (log.length === 0) return 'No activity';
+        const byDomain = {};
+        log.forEach(entry => {
+          const domain = entry.domain || 'unknown';
+          if (!byDomain[domain]) byDomain[domain] = [];
+          byDomain[domain].push(entry);
+        });
 
-      const system = `You are summarizing what the developer currently has open.
+        return Object.entries(byDomain).map(([domain, entries]) => {
+          const displayName = getDisplayName(domain);
+          const titles = entries.map(e => e.title).slice(0, 3);
+          return `- ${displayName}: ${titles.join(', ')}`;
+        }).join('\n');
+      };
 
-All tabs:
-${tabsList}
+      const activity = formatLog(todayLog);
+      const stats = `Total Visits: ${todayStats.totalVisits || 0}
+Unique Pages: ${todayStats.uniquePages || 0}
+Active Time: ${Math.round((todayStats.totalActiveTime || 0) / 60000)} minutes`;
+
+      const system = `You are a helpful assistant summarizing a developer's day.
+Based on the browser activity logs, provide a high-level summary of what was achieved today.
+
+Day activity:
+${activity}
+
+Day stats:
+${stats}
 
 Output format:
-Group tabs by theme (Coding / Research / Communication / Other):
-• Theme Name: 1-2 sentence summary
-• Only group if 2+ tabs in that theme
-
-End with:
-Main focus: [specific description]
-
-Rules:
-• Be specific about what they're working on
-• Mention PR numbers, issue names, etc if visible
-• Keep summary under 150 words total`;
+- Start with a clear 1-sentence headline summarizing the main focus of the day.
+- Use 3-5 bullet points to group related activities.
+- Highlight specific items like PRs, issues, or key documentation.
+- Keep the tone professional but encouraging.`;
 
       return {
         system,
-        maxTokens: 400
+        maxTokens: 500
       };
     }
   },
