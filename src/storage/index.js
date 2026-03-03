@@ -4,6 +4,8 @@
  */
 
 import { openDB } from 'idb';
+import { DEFAULT_SETTINGS, DEFAULT_PREFERENCES } from '../constants.js';
+export { DEFAULT_SETTINGS, DEFAULT_PREFERENCES };
 
 // IndexedDB database name and version
 const DB_NAME = 'openowl-db';
@@ -53,12 +55,7 @@ export async function saveSettings(settings) {
  */
 export async function getSettings() {
   const result = await chrome.storage.local.get('settings');
-  return result.settings || {
-    selectedProvider: 'claude',
-    selectedModel: 'claude-sonnet-4-20250514',
-    apiKeys: {},
-    ollamaUrl: 'http://localhost:11434'
-  };
+  return result.settings || DEFAULT_SETTINGS;
 }
 
 /**
@@ -94,49 +91,18 @@ export async function savePreferences(preferences) {
  */
 export async function getPreferences() {
   const result = await chrome.storage.local.get('preferences');
-  return result.preferences || {
-    alwaysTrack: [
-      'github.com',
-      'linear.app',
-      'atlassian.net',
-      'notion.so',
-      'mail.google.com',
-      'calendar.google.com',
-      'docs.google.com',
-      'figma.com',
-      'vercel.com',
-      'aws.amazon.com',
-      'localhost'
-    ],
-    neverTrack: [
-      'youtube.com',
-      'twitter.com',
-      'x.com',
-      'instagram.com',
-      'facebook.com',
-      'netflix.com',
-      'reddit.com',
-      'tiktok.com',
-      'twitch.tv',
-      'spotify.com'
-    ],
-    workHours: {
-      enabled: true,
-      start: '08:00',
-      end: '19:00'
-    },
-    standupFormat: 'bullets', // bullets|slack|prose
-    logRetentionDays: 30
-  };
-}
 
-/**
- * Get standup format preference
- * @returns {Promise<string>} Format string (bullets|slack|prose)
- */
-export async function getStandupFormat() {
-  const prefs = await getPreferences();
-  return prefs.standupFormat || 'bullets';
+  if (!result.preferences) return DEFAULT_PREFERENCES;
+
+  // Merge defaults to handle partially missing keys from older versions
+  return {
+    ...DEFAULT_PREFERENCES,
+    ...result.preferences,
+    workHours: {
+      ...DEFAULT_PREFERENCES.workHours,
+      ...(result.preferences.workHours || {})
+    }
+  };
 }
 
 // ============================================
@@ -197,13 +163,36 @@ export async function saveDayLogEntry(entry) {
  * @returns {Promise<Array>}
  */
 export async function getDayLog(date) {
+  const db = await initDB();
+
   if (!date) {
+    // Return all entries from today onwards (including those with future dates if any, or just today's)
+    // Actually, normally it's just today.
     date = new Date().toISOString().split('T')[0];
   }
-  const db = await initDB();
+
   const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
   const index = tx.store.index('date');
   return index.getAll(date);
+}
+
+/**
+ * Get all history entries available (for context when needed)
+ * @param {number} limit - Max entries
+ * @returns {Promise<Array>}
+ */
+export async function getAllHistory(limit = 100) {
+  const db = await initDB();
+  const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+  const index = tx.store.index('visitedAt');
+  // Get most recent entries
+  let cursor = await index.openCursor(null, 'prev');
+  const results = [];
+  while (cursor && results.length < limit) {
+    results.push(cursor.value);
+    cursor = await cursor.continue();
+  }
+  return results;
 }
 
 /**
@@ -296,11 +285,14 @@ export async function importHistoryEntries(entries) {
   let imported = 0;
   let skipped = 0;
 
+  // Use a single read-write transaction for batch performance
+  const tx = db.transaction(DAY_LOGS_STORE, 'readwrite');
+  const store = tx.store;
+  const index = store.index('url');
+
   for (const entry of entries) {
     try {
       // Check if URL already exists for that date
-      const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
-      const index = tx.store.index('url');
       const existingEntries = await index.getAll(entry.url);
 
       // Check if any existing entry has the same date
@@ -312,7 +304,7 @@ export async function importHistoryEntries(entries) {
       }
 
       // Add entry with source marker
-      await db.add(DAY_LOGS_STORE, {
+      await store.add({
         ...entry,
         source: 'history_import'
       });
@@ -324,6 +316,7 @@ export async function importHistoryEntries(entries) {
     }
   }
 
+  await tx.done;
   console.log(`[History Import] Complete: ${imported} imported, ${skipped} skipped`);
   return { imported, skipped };
 }
@@ -348,9 +341,12 @@ export async function getTodayStats() {
   const uniqueUrls = new Set(entries.map(e => e.url));
   const totalActiveTime = entries.reduce((sum, e) => sum + (e.activeTime || 0), 0);
 
+  // Filter out history imports for TodayStats as they don't represent today's real activity
+  const realEntries = entries.filter(e => e.source !== 'history_import');
+
   // Top domains
   const domainCounts = {};
-  entries.forEach(e => {
+  realEntries.forEach(e => {
     if (e.domain) {
       domainCounts[e.domain] = (domainCounts[e.domain] || 0) + 1;
     }
@@ -376,13 +372,16 @@ export async function getTodayStats() {
  * @returns {Promise<Array>} Filtered and sorted entries
  */
 export async function getMeaningfulHistory(limit = 20) {
-  const entries = await getDayLog();
+  // If no limit or small limit, we can just look at today's log.
+  // But if we want more context, we should look at recent history in general.
+  const entries = await getAllHistory(200);
   const preferences = await getPreferences();
 
   // Filter meaningful entries
   const filtered = entries.filter(entry => {
-    // Must have meaningful active time (>5 seconds)
-    if (!entry.activeTime || entry.activeTime < 5000) return false;
+    // Must have meaningful active time (>=minActiveTimeMs) OR be from history import
+    const isMeaningful = (entry.activeTime && entry.activeTime >= preferences.minActiveTimeMs) || entry.source === 'history_import';
+    if (!isMeaningful) return false;
 
     // Skip internal URLs
     if (!entry.url ||
@@ -399,8 +398,17 @@ export async function getMeaningfulHistory(limit = 20) {
 
   });
 
-  // Sort by active time descending (most important first)
-  filtered.sort((a, b) => (b.activeTime || 0) - (a.activeTime || 0));
+  // Sort by Importance (Active time > History import)
+  filtered.sort((a, b) => {
+    // If one is history import and other isn't, prefer non-import (live) if it has more time
+    // But generally just sort by activeTime.
+    // However, history_import has 0 activeTime, so they'll all be at the bottom.
+    // Let's sort by visitedAt if activeTime is equal (like 0)
+    if ((b.activeTime || 0) === (a.activeTime || 0)) {
+      return (b.visitedAt || 0) - (a.visitedAt || 0);
+    }
+    return (b.activeTime || 0) - (a.activeTime || 0);
+  });
 
   // Return top entries
   return filtered.slice(0, limit);

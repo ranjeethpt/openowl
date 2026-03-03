@@ -50,18 +50,18 @@ export default function Today({ onNavigateToAsk }) {
 
   async function checkHistoryImport() {
     try {
-      const result = await chrome.storage.local.get('historyImport');
-      if (result.historyImport && !result.historyImport.shown) {
+      const result = await chrome.storage.local.get(['historyImport', 'historyImported']);
+      if (result.historyImported && !result.historyImport?.shown) {
         setHistoryImport(result.historyImport);
         setShowImportBanner(true);
-
+        
         // Mark as shown so never appears again
         await chrome.storage.local.set({
           historyImport: { ...result.historyImport, shown: true }
         });
-
-        // Auto dismiss after 5 seconds
-        setTimeout(() => setShowImportBanner(false), 5000);
+        
+        // Auto dismiss after 10 seconds
+        setTimeout(() => setShowImportBanner(false), 10000);
       }
     } catch (error) {
       console.error('Error checking history import:', error);
@@ -238,29 +238,28 @@ export default function Today({ onNavigateToAsk }) {
   const hourlyGroups = getHourlyGroups();
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-white">
+    <div className="flex flex-col h-full overflow-hidden bg-white">
       {/* History Import Banner (one-time) */}
       {showImportBanner && historyImport && (
-        <div className="mx-4 mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm text-gray-800 font-medium">
-              📦 Imported {historyImport.entriesImported} entries from your last 30 days of work history
-            </p>
-            <p className="text-xs text-gray-600 mt-1">
-              All data stays on your device. Never leaves Chrome.
+        <div className="flex-shrink-0 mx-4 mt-3 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-3 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-2">
+            <span className="text-base">📦</span>
+            <p className="text-xs text-gray-800 font-medium">
+              Imported {historyImport.entriesImported} items from your last 30 days of work history.
             </p>
           </div>
           <button
             onClick={() => setShowImportBanner(false)}
-            className="text-gray-400 hover:text-gray-600 text-sm flex-shrink-0"
+            className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-blue-100 transition-colors"
             title="Dismiss"
           >
-            ✕
+            <span className="text-xs">✕</span>
           </button>
         </div>
       )}
 
-      {/* Section 1: Today's Focus Card */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Section 1: Today's Focus Card */}
       {summary && (
         <div className="p-4 bg-owl-blue/5 border-b border-owl-blue/10">
           <div className="flex items-center justify-between mb-0.5">
@@ -477,6 +476,7 @@ export default function Today({ onNavigateToAsk }) {
             🎯 What to focus on?
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

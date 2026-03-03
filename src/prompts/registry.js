@@ -20,6 +20,42 @@
 import { getDisplayName } from '../content/extractors/registry.js';
 
 /**
+ * Shared helper for formatting log entries.
+ * Handles both live (active tracked) and history_import (from browser history) entries.
+ * @param {Array} entries - Activity log entries
+ * @param {boolean} [showUrl=false] - For history entries, show URL + visitCount instead of grouped domains
+ * @returns {string} Formatted string for prompts
+ */
+function formatLogEntries(entries, showUrl = false) {
+  if (!entries || entries.length === 0) return 'No activity';
+
+  if (showUrl) {
+    // For history entries - show URL + visitCount
+    return entries.map(e =>
+      `- ${e.title}
+      URL: ${e.url}
+      Visited ${e.visitCount || 1} time(s)`
+    ).join('\n');
+  }
+
+  // For live entries - group by domain for better readability
+  const byDomain = {};
+  entries.forEach(entry => {
+    const domain = entry.domain || 'unknown';
+    if (!byDomain[domain]) byDomain[domain] = [];
+    byDomain[domain].push(entry);
+  });
+
+  return Object.entries(byDomain).map(([domain, entries]) => {
+    const displayName = getDisplayName(domain);
+    const titles = entries.map(e => e.title).slice(0, 3);
+    const timeSpent = entries.reduce((sum, e) => sum + (e.activeTime || 0), 0);
+    const timeStr = timeSpent > 0 ? ` (${Math.round(timeSpent / 60000)}m active)` : '';
+    return `- ${displayName}: ${titles.join(', ')}${timeStr}`;
+  }).join('\n');
+}
+
+/**
  * @typedef {Object} ExtractedContent
  * @property {string} url
  * @property {string} title
@@ -45,7 +81,7 @@ export const PromptRegistry = {
    * General questions about open tabs and work
    */
   ask: {
-    version: '2.0.0',
+    version: '2.1.0',
     description: 'General questions with full context (tabs + history + copies)',
 
     /**
@@ -71,9 +107,11 @@ ${tab.content || '(no content extracted)'}${tab.compressed ? ' (truncated)' : ''
       const historyContext = history.length > 0
         ? history.map(e =>
             `- ${e.domain}: ${e.title}
-  Time: ${Math.round((e.activeTime || 0) / 60000)}m active${
-    e.copied && e.copied.length > 0 ? `\n  Copied: "${e.copied[0]}"` : ''
-  }`
+      URL: ${e.url}
+      Time: ${Math.round((e.activeTime || 0) / 60000)}m active
+      Visits: ${e.visitCount || 1}
+      ${e.source === 'history_import' ? '(from browser history)' : ''}
+      ${e.copied?.length > 0 ? `Copied: "${e.copied[0]}"` : ''}`
           ).join('\n')
         : '';
 
@@ -112,7 +150,7 @@ Rules:
    * Generate daily standup from activity
    */
   standup: {
-    version: '2.0.0',
+    version: '2.1.0',
     description: 'Generate daily standup from day log activity',
 
     /**
@@ -125,32 +163,25 @@ Rules:
     build: (context) => {
       const { todayLog = [], yesterdayLog = [], todayStats = {} } = context;
 
-      const formatLog = (log) => {
-        if (log.length === 0) return 'No activity';
+      const liveEntriesToday = todayLog.filter(e => e.source !== 'history_import');
+      const historyEntriesToday = todayLog.filter(e => e.source === 'history_import');
 
-        // Group by domain for better readability
-        const byDomain = {};
-        log.forEach(entry => {
-          const domain = entry.domain || 'unknown';
-          if (!byDomain[domain]) byDomain[domain] = [];
-          byDomain[domain].push(entry);
-        });
+      const liveEntriesYesterday = yesterdayLog.filter(e => e.source !== 'history_import');
+      const historyEntriesYesterday = yesterdayLog.filter(e => e.source === 'history_import');
 
-        return Object.entries(byDomain).map(([domain, entries]) => {
-          const displayName = getDisplayName(domain);
-          const titles = entries.map(e => e.title).slice(0, 3);
-          const timeSpent = entries.reduce((sum, e) => sum + (e.activeTime || 0), 0);
-          const timeStr = timeSpent > 0 ? ` (${Math.round(timeSpent / 60000)}m active)` : '';
-          return `- ${displayName}: ${titles.join(', ')}${timeStr}`;
-        }).join('\n');
+      const formatCombinedLog = (live, history) => {
+        const parts = [];
+        if (live.length > 0) parts.push(formatLogEntries(live));
+        if (history.length > 0) parts.push(formatLogEntries(history, true));
+        return parts.length > 0 ? parts.join('\n') : 'No activity';
       };
 
       const todayActivity = todayLog.length > 0
-        ? formatLog(todayLog)
+        ? formatCombinedLog(liveEntriesToday, historyEntriesToday)
         : 'No activity logged today yet';
 
       const yesterdayActivity = yesterdayLog.length > 0
-        ? formatLog(yesterdayLog)
+        ? formatCombinedLog(liveEntriesYesterday, historyEntriesYesterday)
         : 'No activity from yesterday';
 
       const statsContext = todayStats.totalVisits
@@ -158,6 +189,8 @@ Rules:
         : '';
 
       const system = `You are helping write a daily standup update based on browser activity logs.
+
+Some entries are from browser history (no page content extracted). Use the page title and URL to infer what was worked on. A PR title is self-explanatory. Visit count indicates importance — visited 5+ times = actively worked on.
 
 Today's activity:
 ${todayActivity}${statsContext}
@@ -211,23 +244,7 @@ Rules:
     build: (context) => {
       const { todayLog = [], todayStats = {} } = context;
 
-      const formatLog = (log) => {
-        if (log.length === 0) return 'No activity';
-        const byDomain = {};
-        log.forEach(entry => {
-          const domain = entry.domain || 'unknown';
-          if (!byDomain[domain]) byDomain[domain] = [];
-          byDomain[domain].push(entry);
-        });
-
-        return Object.entries(byDomain).map(([domain, entries]) => {
-          const displayName = getDisplayName(domain);
-          const titles = entries.map(e => e.title).slice(0, 3);
-          return `- ${displayName}: ${titles.join(', ')}`;
-        }).join('\n');
-      };
-
-      const activity = formatLog(todayLog);
+      const activity = formatLogEntries(todayLog);
       const stats = `Total Visits: ${todayStats.totalVisits || 0}
 Unique Pages: ${todayStats.uniquePages || 0}
 Active Time: ${Math.round((todayStats.totalActiveTime || 0) / 60000)} minutes`;
@@ -397,7 +414,7 @@ Rules:
    * Insights from today's activity log
    */
   dayInsight: {
-    version: '1.0.0',
+    version: '1.0.1',
     description: 'Generate insights from today\'s day log',
 
     /**
@@ -423,7 +440,9 @@ Rules:
         .filter(e => e.copied && e.copied.length > 0)
         .flatMap(e => e.copied)
         .slice(0, 5)
-        .map(c => `"${c.text.substring(0, 100)}..."`)
+        .map(c => typeof c === 'string'
+          ? `"${c.substring(0, 100)}..."`
+          : `"${c.text?.substring(0, 100) || ''}..."`)
         .join('\n');
 
       const revisitedPages = dayLog
@@ -507,8 +526,9 @@ export function validateContext(name, context) {
   // Define expected context fields for each prompt
   const expectedFields = {
     ask: ['tabs', 'tabCount', 'totalTabs', 'history', 'copies'],
-    standup: ['todayLog'],
+    standup: ['todayLog', 'yesterdayLog'],
     summarizeTabs: ['tabs'],
+    summary: ['todayLog', 'todayStats'],
     briefing: ['yesterdayLog'],
     continueWork: ['pages'],
     patternInsight: ['patterns', 'weekLog'],

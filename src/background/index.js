@@ -402,8 +402,8 @@ async function handleAskAI(data, sendResponse) {
   try {
     // Get settings for API key and model
     const settings = await storage.getSettings();
-    const provider = settings.selectedProvider;
-    const apiKey = settings.apiKeys?.[provider] || '';
+    const provider = data.provider || settings.selectedProvider;
+    const apiKey = data.apiKey || settings.apiKeys?.[provider] || '';
 
     if (!apiKey && provider !== 'ollama') {
       throw new Error('API key not configured. Please set it in Settings.');
@@ -440,10 +440,10 @@ async function handleAskAI(data, sendResponse) {
     const response = await callLLM({
       provider: provider,
       apiKey: apiKey,
-      model: settings.selectedModel,
+      model: data.model || settings.selectedModel,
       prompt: data.prompt,
       systemPrompt: systemPrompt,
-      ollamaUrl: settings.ollamaUrl
+      ollamaUrl: data.ollamaUrl || settings.ollamaUrl
     });
 
     sendResponse({
@@ -684,7 +684,7 @@ function analyzePatterns(entries) {
 
 /**
  * Import Chrome browsing history from last N days
- * Filters using preferences (Never Track list, work domains only)
+ * Filters using preferences (Never Track list)
  * @param {number} daysBack - Number of days to import (default 30)
  * @returns {Promise<Object>} { imported, skipped } counts
  */
@@ -714,16 +714,15 @@ async function importChromeHistory(daysBack = 30) {
         return false;
       }
 
-      // Skip if not work domain and visited only once
+      // Skip if visited only once
       // (reduces noise from random one-off visits)
-      const isWorkDomain = prefs.alwaysTrack.some(d => domain.includes(d));
-      return !(!isWorkDomain && (item.visitCount || 0) < 2);
+      return (item.visitCount || 0) >= 2;
     } catch {
       return false; // skip malformed URLs
     }
   });
 
-  console.log(`[History Import] Filtered to ${filtered.length} work-related items`);
+  console.log(`[History Import] Filtered to ${filtered.length} items`);
 
   // Convert to day log entries
   const entries = filtered.map(item => {
@@ -771,8 +770,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     console.log('[OpenOwl] First install detected - importing history...');
     try {
+      // Import up to 30 days of history
       const result = await importChromeHistory(30);
+      console.log(`[OpenOwl] History import finished. Result: ${result.imported} imported, ${result.skipped} skipped.`);
+      
       await chrome.storage.local.set({
+        historyImported: true,
         historyImport: {
           lastImported: new Date().toISOString(),
           entriesImported: result.imported,
@@ -780,10 +783,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
           shown: false  // banner not shown yet
         }
       });
-      console.log('[OpenOwl] History imported:', result);
     } catch (err) {
       console.error('[OpenOwl] History import failed:', err);
-      // Fail silently - not critical
+      // Fail silently - not critical, but log it
     }
   }
 
