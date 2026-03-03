@@ -184,7 +184,8 @@ async function handleOpenAIStream(response, onChunk) {
  * @private
  */
 async function callGemini({ apiKey, model, prompt, systemPrompt }, onChunk) {
-  const modelName = model || 'gemini-2.0-flash-exp';
+  // Use v1beta - it's the stable API for Gemini 2.5+ models
+  const modelName = model || 'gemini-2.5-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:${onChunk ? 'streamGenerateContent' : 'generateContent'}?key=${apiKey}`;
 
   const response = await fetch(url, {
@@ -193,9 +194,9 @@ async function callGemini({ apiKey, model, prompt, systemPrompt }, onChunk) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      system_instruction: {
+      systemInstruction: systemPrompt ? {
         parts: [{ text: systemPrompt }]
-      },
+      } : undefined,
       contents: [
         {
           parts: [{ text: prompt }]

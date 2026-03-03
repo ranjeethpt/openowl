@@ -725,6 +725,7 @@ async function importChromeHistory(daysBack = 30) {
   console.log(`[History Import] Filtered to ${filtered.length} items`);
 
   // Convert to day log entries
+  const todayDate = new Date().toISOString().split('T')[0];
   const entries = filtered.map(item => {
     const url = new URL(item.url);
     return {
@@ -733,7 +734,8 @@ async function importChromeHistory(daysBack = 30) {
       domain: url.hostname,
       content: '',
       extractionType: 'history_import',
-      date: new Date(item.lastVisitTime).toISOString().split('T')[0],
+      date: todayDate, // Use today's date so it shows in Today tab
+      originalDate: new Date(item.lastVisitTime).toISOString().split('T')[0], // Keep original for timeline
       visitedAt: item.lastVisitTime,
       leftAt: null,
       activeTime: 0,
