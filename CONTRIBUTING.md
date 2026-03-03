@@ -21,7 +21,7 @@ export class YourSiteExtractor extends BaseSiteExtractor {
   }
 
   get name() {
-    return 'YourSite';  // Display name
+    return 'YourSite';  // Short display name — used in Today tab and standup output
   }
 
   extract() {
@@ -92,6 +92,113 @@ See `src/content/extractors/sites/github.js` for a complete reference implementa
 - Issues
 - Code files
 - Repository pages
+
+---
+
+## Debugging
+
+All debugging is done from the **extension service worker console**, not from a regular page DevTools.
+
+**How to open it:**
+```
+chrome://extensions → find OpenOwl → click "service worker" link
+```
+
+Type `allow pasting` and press Enter before pasting any commands.
+
+---
+
+### Dump All Stored Data
+
+Inspect everything OpenOwl has saved — IndexedDB day logs and all chrome.storage.local data:
+
+```javascript
+const db = await new Promise(r => {
+  const req = indexedDB.open('openowl-db')
+  req.onsuccess = e => r(e.target.result)
+})
+const tx = db.transaction('dayLogs', 'readonly')
+const logs = await new Promise(r => {
+  const req = tx.objectStore('dayLogs').getAll()
+  req.onsuccess = e => r(e.target.result)
+})
+
+const local = await chrome.storage.local.get(null)
+
+console.group('🦉 OpenOwl Data Dump')
+console.group(`📅 IndexedDB — dayLogs (${logs.length} entries)`)
+console.table(logs)
+console.groupEnd()
+console.group('⚙️ chrome.storage.local')
+console.log(local)
+console.groupEnd()
+console.groupEnd()
+```
+
+---
+
+### Clear All Data (Fresh Start)
+
+Wipe everything — useful when testing first-install flows or resetting state:
+
+```javascript
+const db = await new Promise(r => {
+  const req = indexedDB.open('openowl-db')
+  req.onsuccess = e => r(e.target.result)
+})
+const tx = db.transaction('dayLogs', 'readwrite')
+tx.objectStore('dayLogs').clear()
+await chrome.storage.local.clear()
+console.log('🗑️ All OpenOwl data cleared')
+```
+
+> **Note:** After clearing, reload the extension from `chrome://extensions` to reinitialise defaults.
+
+---
+
+### Count Entries By Date
+
+Quickly see how many log entries exist per day — useful for verifying history import or day logging:
+
+```javascript
+const db = await new Promise(r => {
+  const req = indexedDB.open('openowl-db')
+  req.onsuccess = e => r(e.target.result)
+})
+const tx = db.transaction('dayLogs', 'readonly')
+const logs = await new Promise(r => {
+  const req = tx.objectStore('dayLogs').getAll()
+  req.onsuccess = e => r(e.target.result)
+})
+const byDate = logs.reduce((acc, e) => {
+  acc[e.date] = (acc[e.date] || 0) + 1
+  return acc
+}, {})
+console.table(byDate)
+```
+
+---
+
+### Manual Testing Checklist
+
+Before submitting a PR, verify the following manually:
+
+**New site extractor:**
+- [ ] Open the site in Chrome with OpenOwl active
+- [ ] Ask "what is this page about?" in the Ask tab
+- [ ] Response references actual page content (not generic)
+- [ ] Check console for `[Registry]` logs showing correct extractor used
+- [ ] Test at least 3 different page types on that site
+- [ ] No console errors thrown by the extractor
+
+**New feature or bug fix:**
+- [ ] No console errors
+- [ ] Works with at least one LLM provider (Claude or Ollama)
+- [ ] Tab count shows correctly in Ask tab
+- [ ] Today tab still loads correctly
+- [ ] Settings save and persist after reload
+
+---
 
 ## Other Contributions
 

@@ -4,6 +4,7 @@
  */
 
 import { extractCurrentPage } from './extractors/registry.js';
+import { DEFAULT_PREFERENCES } from '../constants.js';
 
 console.log('OpenOwl content script loaded');
 
@@ -24,6 +25,8 @@ let currentEntryId = null;
 let lastUrl = window.location.href;
 let maxScrollDepth = 0;
 let copiedTexts = [];
+let forceLog = false;
+let minActiveTimeMs = DEFAULT_PREFERENCES.minActiveTimeMs; // Default, will be updated from prefs
 
 // Generate session ID (persists for browser session)
 const sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -37,6 +40,11 @@ function startActiveTimeTracking() {
   activeTimeInterval = setInterval(() => {
     if (isPageVisible) {
       activeTime += 1000; // Add 1 second
+
+      // If we haven't logged this visit yet and reached threshold, trigger it
+      if (!currentEntryId && activeTime >= minActiveTimeMs) {
+        debouncedLogVisit();
+      }
     }
   }, 1000);
 }
@@ -80,6 +88,11 @@ async function logPageVisit() {
       const prefs = prefsResponse.data;
       const hostname = window.location.hostname;
 
+      // Update min active time from preferences
+      if (prefs.minActiveTimeMs !== undefined) {
+        minActiveTimeMs = prefs.minActiveTimeMs;
+      }
+
       // Check Never Track list
       if (prefs.neverTrack.some(d => hostname.includes(d))) {
         console.log('[DayLog] Domain in never track list, skipping:', hostname);
@@ -97,11 +110,9 @@ async function logPageVisit() {
         }
       }
 
-      // Check Always Track vs time threshold
-      const isAlwaysTrack = prefs.alwaysTrack.some(d => hostname.includes(d));
-      if (!isAlwaysTrack && activeTime < 30000) {
-        // Not in always track list and less than 30 seconds active time
-        console.log('[DayLog] Not always track and < 30s active time, skipping:', hostname);
+      // Log only if active time > threshold (unless forced by copy)
+      if (activeTime < minActiveTimeMs && !forceLog) {
+        console.log(`[DayLog] < ${minActiveTimeMs / 1000}s active time, skipping:`, hostname);
         return;
       }
     }
@@ -202,6 +213,9 @@ document.addEventListener('copy', async () => {
     const active = document.activeElement;
     if (active?.type === 'password') return;
 
+    // Set flag to force log even if under 10s threshold
+    forceLog = true;
+
     // Store locally for current page
     copiedTexts.push({
       text: text.substring(0, 200), // Limit to 200 chars
@@ -212,6 +226,9 @@ document.addEventListener('copy', async () => {
     if (copiedTexts.length > 5) {
       copiedTexts.shift();
     }
+
+    // Trigger immediate log visit
+    debouncedLogVisit();
 
     // Send to background to update existing entry
     chrome.runtime.sendMessage({
@@ -263,6 +280,7 @@ function handleUrlChange() {
     maxScrollDepth = 0;
     copiedTexts = [];
     currentEntryId = null;
+    forceLog = false;
     lastUrl = newUrl;
 
     // Log new visit

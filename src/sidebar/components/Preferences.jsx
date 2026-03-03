@@ -9,7 +9,6 @@ export default function Preferences() {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
-  const [newAlwaysDomain, setNewAlwaysDomain] = useState('');
   const [newNeverDomain, setNewNeverDomain] = useState('');
 
   useEffect(() => {
@@ -61,8 +60,7 @@ export default function Preferences() {
     });
 
     // Clear input
-    if (list === 'alwaysTrack') setNewAlwaysDomain('');
-    else setNewNeverDomain('');
+    setNewNeverDomain('');
   }
 
   function removeDomain(list, domain) {
@@ -103,108 +101,56 @@ export default function Preferences() {
       {expanded && (
         <div className="p-4 pt-0 space-y-6">
           {/* Domain Filters */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Always Track */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2">
-                Always Track (work domains)
-              </label>
-              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 max-h-48 overflow-y-auto">
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {preferences.alwaysTrack.map((domain, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs px-2 py-1 rounded"
-                    >
-                      {domain}
-                      <button
-                        onClick={() => removeDomain('alwaysTrack', domain)}
-                        className="hover:text-green-900"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-1">
-                  <input
-                    type="text"
-                    value={newAlwaysDomain}
-                    onChange={(e) => setNewAlwaysDomain(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addDomain('alwaysTrack', newAlwaysDomain);
-                      }
-                    }}
-                    placeholder="domain.com"
-                    className="flex-1 text-xs border border-gray-300 rounded px-2 py-1"
-                  />
-                  <button
-                    onClick={() => addDomain('alwaysTrack', newAlwaysDomain)}
-                    className="text-xs bg-green-600 text-white px-2 rounded hover:bg-green-700"
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">
+              Never Track (personal/noise)
+            </label>
+            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 max-h-48 overflow-y-auto">
+              <div className="flex flex-wrap gap-1 mb-2">
+                {preferences.neverTrack.map((domain, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 bg-red-100 text-red-800 text-xs px-2 py-1 rounded"
                   >
-                    +
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                These domains are always logged
-              </p>
-            </div>
-
-            {/* Never Track */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2">
-                Never Track (personal/noise)
-              </label>
-              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 max-h-48 overflow-y-auto">
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {preferences.neverTrack.map((domain, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1 bg-red-100 text-red-800 text-xs px-2 py-1 rounded"
+                    {domain}
+                    <button
+                      onClick={() => removeDomain('neverTrack', domain)}
+                      className="hover:text-red-900"
                     >
-                      {domain}
-                      <button
-                        onClick={() => removeDomain('neverTrack', domain)}
-                        className="hover:text-red-900"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-1">
-                  <input
-                    type="text"
-                    value={newNeverDomain}
-                    onChange={(e) => setNewNeverDomain(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addDomain('neverTrack', newNeverDomain);
-                      }
-                    }}
-                    placeholder="domain.com"
-                    className="flex-1 text-xs border border-gray-300 rounded px-2 py-1"
-                  />
-                  <button
-                    onClick={() => addDomain('neverTrack', newNeverDomain)}
-                    className="text-xs bg-red-600 text-white px-2 rounded hover:bg-red-700"
-                  >
-                    +
-                  </button>
-                </div>
+                      ×
+                    </button>
+                  </span>
+                ))}
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                These domains are never logged
-              </p>
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={newNeverDomain}
+                  onChange={(e) => setNewNeverDomain(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addDomain('neverTrack', newNeverDomain);
+                    }
+                  }}
+                  placeholder="domain.com"
+                  className="flex-1 text-xs border border-gray-300 rounded px-2 py-1"
+                />
+                <button
+                  onClick={() => addDomain('neverTrack', newNeverDomain)}
+                  className="text-xs bg-red-600 text-white px-2 rounded hover:bg-red-700"
+                >
+                  +
+                </button>
+              </div>
             </div>
+            <p className="text-xs text-gray-500 mt-1">
+              These domains are never logged
+            </p>
           </div>
 
           <p className="text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded p-2">
-            💡 Anything not in either list: tracked only if active time {">"} 30 seconds
+            💡 Anything not in this list: tracked only if active time {">"} {preferences.minActiveTimeMs / 1000} seconds
           </p>
 
           {/* Work Hours */}
@@ -243,66 +189,6 @@ export default function Preferences() {
                 />
               </div>
             )}
-          </div>
-
-          {/* Standup Format */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2">
-              Standup Format
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="standupFormat"
-                  value="bullets"
-                  checked={preferences.standupFormat === 'bullets'}
-                  onChange={(e) => setPreferences({...preferences, standupFormat: e.target.value})}
-                  className="mt-0.5"
-                />
-                <div className="flex-1">
-                  <div className="text-xs font-medium">Bullets (default)</div>
-                  <div className="text-xs text-gray-500 font-mono bg-gray-50 p-1 rounded mt-1">
-                    Yesterday:
-                    <br />• item
-                    <br />Today:
-                    <br />• item
-                  </div>
-                </div>
-              </label>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="standupFormat"
-                  value="slack"
-                  checked={preferences.standupFormat === 'slack'}
-                  onChange={(e) => setPreferences({...preferences, standupFormat: e.target.value})}
-                  className="mt-0.5"
-                />
-                <div className="flex-1">
-                  <div className="text-xs font-medium">Slack</div>
-                  <div className="text-xs text-gray-500 font-mono bg-gray-50 p-1 rounded mt-1">
-                    *Yesterday:* item | *Today:* item
-                  </div>
-                </div>
-              </label>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="standupFormat"
-                  value="prose"
-                  checked={preferences.standupFormat === 'prose'}
-                  onChange={(e) => setPreferences({...preferences, standupFormat: e.target.value})}
-                  className="mt-0.5"
-                />
-                <div className="flex-1">
-                  <div className="text-xs font-medium">Prose</div>
-                  <div className="text-xs text-gray-500 bg-gray-50 p-1 rounded mt-1">
-                    Yesterday I worked on... Today I plan to...
-                  </div>
-                </div>
-              </label>
-            </div>
           </div>
 
           {/* Log Retention */}

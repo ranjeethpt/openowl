@@ -124,33 +124,33 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <main className="flex-1 min-h-0 overflow-hidden relative">
         {!isConfigured && currentView === 'settings' && (
-          <div className="p-6 bg-owl-blue/10 border-b border-owl-blue/20">
+          <div className="absolute top-0 left-0 right-0 z-10 p-6 bg-owl-blue/10 border-b border-owl-blue/20">
             <p className="text-sm text-owl-blue font-semibold">👋 Welcome to OpenOwl!</p>
             <p className="text-xs text-gray-600 mt-1">Connect your AI to get started. Takes 30 seconds.</p>
           </div>
         )}
-        {currentView === 'ask' && (
-          <div className="flex flex-col flex-1 min-h-0">
+        <div className={`flex flex-col h-full ${!isConfigured && currentView === 'settings' ? 'pt-24' : ''}`}>
+          {currentView === 'ask' && (
             <Ask
               messages={chatMessages}
               onMessagesChange={setChatMessages}
             />
-          </div>
-        )}
-        {currentView === 'today' && (
-          <Today
-            onNavigateToAsk={(prompt) => {
-              setCurrentView('ask');
-              if (prompt) {
-                // Pre-fill and auto-run in Ask will be handled by passing message
-                setChatMessages(prev => [...prev, { role: 'user', text: prompt, autoRun: true }]);
-              }
-            }}
-          />
-        )}
-        {currentView === 'settings' && <Settings onSave={checkConfiguration} />}
+          )}
+          {currentView === 'today' && (
+            <Today
+              onNavigateToAsk={(prompt) => {
+                setCurrentView('ask');
+                if (prompt) {
+                  // Pre-fill and auto-run in Ask will be handled by passing message
+                  setChatMessages(prev => [...prev, { role: 'user', text: prompt, autoRun: true }]);
+                }
+              }}
+            />
+          )}
+          {currentView === 'settings' && <Settings onSave={checkConfiguration} />}
+        </div>
       </main>
     </div>
   );

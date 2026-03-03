@@ -215,7 +215,12 @@ function Settings({ onSave }) {
           type: 'ASK_AI',
           data: {
             prompt: testPrompt,
-            systemPrompt: 'Reply with just "OK"'
+            systemPrompt: 'Reply with just "OK"',
+            provider: provider,
+            model: model,
+            apiKey: apiKey,
+            ollamaUrl: ollamaUrl,
+            includeContext: false // Don't build context for connection test
           }
         });
 
@@ -290,8 +295,9 @@ function Settings({ onSave }) {
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-owl-primary mb-6">Settings</h2>
+    <div className="flex-1 overflow-y-auto">
+      <div className="p-6 max-w-2xl mx-auto">
+        <h2 className="text-2xl font-bold text-owl-primary mb-6">Settings</h2>
 
       {/* Provider Selection */}
       <div className="mb-6">
@@ -516,6 +522,7 @@ function Settings({ onSave }) {
           <li>• No analytics, no tracking, no telemetry</li>
           <li>• Open source and auditable</li>
         </ul>
+      </div>
       </div>
     </div>
   );
