@@ -147,30 +147,85 @@ export default function Today({ onNavigateToAsk }) {
   function getHourlyGroups() {
     if (dayLog.length === 0) return [];
 
-    // Filter by activeTime > 3000 (3 seconds) to skip accidental clicks
-    const filteredLog = dayLog.filter(entry => (entry.activeTime || 0) > 3000);
+    // Separate today's live entries from imported history
+    const todayEntries = dayLog.filter(e => e.source !== 'history_import' && (e.activeTime || 0) > 3000);
+    const historyEntries = dayLog.filter(e => e.source === 'history_import');
 
     const groups = {};
-    filteredLog.forEach(entry => {
+
+    // Group today's entries by hour
+    todayEntries.forEach(entry => {
       const tsNumber = Number(entry.visitedAt);
       const date = new Date(tsNumber);
       if (isNaN(date.getTime())) return;
 
       const hour = date.getHours();
-      if (!groups[hour]) {
-        groups[hour] = [];
+      const key = `today-${hour}`;
+      if (!groups[key]) {
+        groups[key] = { type: 'hour', hour, entries: [] };
       }
-      groups[hour].push(entry);
+      groups[key].entries.push(entry);
     });
 
+    // Group history entries by original date
+    const historyByDate = {};
+    historyEntries.forEach(entry => {
+      const dateKey = entry.originalDate || entry.date;
+      if (!historyByDate[dateKey]) {
+        historyByDate[dateKey] = [];
+      }
+      historyByDate[dateKey].push(entry);
+    });
+
+    // Add history groups (sorted by date descending)
+    Object.entries(historyByDate)
+      .sort((a, b) => b[0].localeCompare(a[0])) // Most recent date first
+      .forEach(([dateStr, entries]) => {
+        groups[`history-${dateStr}`] = {
+          type: 'date',
+          date: dateStr,
+          entries: entries.slice(0, 10) // Limit to 10 per date to avoid overwhelming
+        };
+      });
+
+    // Sort: today's hours first (most recent), then history dates
     return Object.entries(groups)
-      .sort((a, b) => parseInt(b[0]) - parseInt(a[0])) // Descending (most recent first)
-      .map(([hour, entries]) => {
-        const h = parseInt(hour);
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        const displayHour = h % 12 || 12;
-        const hourStr = `${displayHour}:00 ${ampm}`;
-        return { hour: hourStr, entries };
+      .sort((a, b) => {
+        const [keyA, groupA] = a;
+        const [keyB, groupB] = b;
+
+        if (groupA.type === 'hour' && groupB.type === 'hour') {
+          return parseInt(groupB.hour) - parseInt(groupA.hour);
+        }
+        if (groupA.type === 'hour') return -1; // Today first
+        if (groupB.type === 'hour') return 1;
+
+        // Both history - sort by date descending
+        return groupB.date.localeCompare(groupA.date);
+      })
+      .map(([key, group]) => {
+        if (group.type === 'hour') {
+          const h = group.hour;
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const displayHour = h % 12 || 12;
+          return { hour: `${displayHour}:00 ${ampm}`, entries: group.entries };
+        } else {
+          // Format date nicely
+          const date = new Date(group.date + 'T12:00:00');
+          const today = new Date().toISOString().split('T')[0];
+          const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+          let label;
+          if (group.date === today) {
+            label = 'Today';
+          } else if (group.date === yesterday) {
+            label = 'Yesterday';
+          } else {
+            label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }
+
+          return { hour: label, entries: group.entries };
+        }
       });
   }
 

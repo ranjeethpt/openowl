@@ -91,11 +91,11 @@ Contributions welcome! Feel free to open issues or submit PRs.
 - [x] LLM abstraction layer
 - [x] Content script for page tracking
 - [x] Storage layer (chrome.storage + IndexedDB)
-- [ ] Tab reader - Read all open tabs
-- [ ] AI chat interface
-- [ ] Today's activity log
-- [ ] Morning briefing generation
-- [ ] Standup writer
+- [x] Tab reader - Read all open tabs
+- [x] AI chat interface
+- [x] Today's activity log
+- [x] Morning briefing generation
+- [x] Standup writer
 - [ ] Pattern learning
 
 ## 📄 License

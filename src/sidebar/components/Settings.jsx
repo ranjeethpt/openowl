@@ -85,9 +85,10 @@ function Settings({ onSave }) {
       { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' }
     ],
     gemini: [
-      { value: 'gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash' },
-      { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-      { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' }
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended)' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' }
     ],
     ollama: [
       { value: 'llama3.1', label: 'Llama 3.1 (Recommended)' },
