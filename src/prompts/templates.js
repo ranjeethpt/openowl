@@ -78,16 +78,51 @@ export const TEMPLATES = {
     triggers: ['standup', 'stand up',
                'daily update', 'scrum update'],
     gather: async () => {
-      const [todayLog, yesterdayLog,
+      const [todayLog, lastActivityLog,
              copies, prefs] = await Promise.all([
         getMeaningfulHistory(50),
-        storage.getYesterdayLog(),
+        storage.getLastActivityLog(),
         getCopiedSnippets(),
         storage.getPreferences()
       ]);
+
+      // Calculate human label for last activity date
+      let lastDayLabel = 'Yesterday';
+      let isFirstRun = false;
+
+      if (lastActivityLog.length === 0) {
+        isFirstRun = true;
+      } else {
+        const lastDate = lastActivityLog[0].date;
+        const today = new Date();
+        const lastDay = new Date(lastDate);
+
+        // Calculate days ago
+        const diffTime = today - lastDay;
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 1) {
+          lastDayLabel = 'Yesterday';
+        } else if (diffDays === 2 || diffDays === 3) {
+          // Day name only (e.g., "Friday")
+          lastDayLabel = lastDay.toLocaleDateString('en-US', { weekday: 'long' });
+        } else if (diffDays >= 4) {
+          // Day + date (e.g., "Monday 24 Feb")
+          lastDayLabel = lastDay.toLocaleDateString('en-US', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'short'
+          });
+        }
+      }
+
       return {
-        todayLog, yesterdayLog, copies,
-        format: prefs.standupFormat || 'bullets'
+        todayLog,
+        lastActivityLog,
+        copies,
+        format: prefs.standupFormat || 'bullets',
+        lastDayLabel,
+        isFirstRun
       };
     },
     prompt: 'standup'
@@ -157,5 +192,35 @@ export const TEMPLATES = {
       question
     }),
     prompt: 'meetingPrep'
+  },
+
+  weekWrap: {
+    label: '📅 Week wrap',
+    type: 'auto',
+    category: 'weekly',
+    triggers: ['week wrap', 'weekly summary',
+               'what did i ship', 'end of week',
+               'this week', 'week summary'],
+    gather: async () => {
+      const weekLog = await storage.getWeekLog();
+
+      // Check if any activity exists (including history_import as fallback)
+      const hasRealActivity = weekLog.some(e =>
+        e.source !== 'history_import' &&
+        (e.activeTime > 0 || e.visitCount > 1)
+      );
+
+      const hasHistoryImport = weekLog.some(e => e.source === 'history_import');
+
+      // Has activity if either real activity OR history import exists
+      const hasActivity = hasRealActivity || hasHistoryImport;
+
+      return {
+        weekLog,
+        hasActivity,
+        isHistoryOnly: !hasRealActivity && hasHistoryImport
+      };
+    },
+    prompt: 'weekSummary'
   }
 };

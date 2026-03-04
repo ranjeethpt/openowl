@@ -4,6 +4,8 @@
 import { TEMPLATES } from '../prompts/templates.js';
 
 export function detectTemplate(question) {
+  if (!question) return null;
+
   const q = question.toLowerCase().trim();
 
   for (const [key, template] of Object.entries(TEMPLATES)) {

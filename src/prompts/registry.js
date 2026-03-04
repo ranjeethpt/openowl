@@ -178,19 +178,49 @@ Rules:
    * Generate daily standup from activity
    */
   standup: {
-    version: '3.0.0',
-    description: 'Generate daily standup from day log activity with format support',
+    version: '2.2.0',
+    description: 'Generate daily standup from day log activity with Monday-aware last activity',
 
     /**
      * @param {Object} context
      * @param {Array} context.todayLog - Today's day log entries with full metadata
-     * @param {Array} [context.yesterdayLog] - Yesterday's day log entries
+     * @param {Array} [context.lastActivityLog] - Last activity day log entries
      * @param {Array} [context.copies] - Copied snippets
      * @param {string} [context.format] - Output format: bullets|slack|prose|custom
+     * @param {string} [context.lastDayLabel] - Human label for last activity day
+     * @param {boolean} [context.isFirstRun] - True if no activity recorded yet
      * @returns {PromptResult}
      */
     build: (context) => {
-      const { todayLog = [], yesterdayLog = [], copies = [], format = 'bullets' } = context;
+      const {
+        todayLog = [],
+        lastActivityLog = [],
+        copies = [],
+        format = 'bullets',
+        lastDayLabel = 'Yesterday',
+        isFirstRun = false
+      } = context;
+
+      // Handle first run case
+      if (isFirstRun) {
+        const system = `You are OpenOwl, helping a developer set up their standup workflow.
+
+This is their first time using standup generation, and no activity has been recorded yet.
+
+Don't try to write a standup from empty data. Instead:
+- Explain that OpenOwl will track their browsing activity
+- Once activity is recorded, standups will be generated automatically
+- Suggest trying again tomorrow after some work
+- Offer a blank template they can fill manually if needed
+
+Keep it friendly and under 100 words.`;
+
+        return {
+          system,
+          user: 'Write my standup',
+          maxTokens: 150
+        };
+      }
 
       // Helper to format time
       const formatMs = (ms) => {
@@ -205,33 +235,42 @@ Rules:
           ).join('\n')
         : 'No activity recorded today yet';
 
-      // Format yesterday's activity
-      const yesterdayActivity = yesterdayLog.length > 0
-        ? yesterdayLog.map(e =>
-            `- ${getDisplayName(e.domain)}: ${e.title} (${formatMs(e.activeTime || 0)} active)`
-          ).join('\n')
-        : 'No activity recorded yesterday';
+      // Format last activity day
+      let lastActivity = 'No activity recorded';
+      let isHistoryImportOnly = false;
+
+      if (lastActivityLog.length > 0) {
+        // Check if all entries are from history_import
+        isHistoryImportOnly = lastActivityLog.every(e => e.source === 'history_import');
+
+        lastActivity = lastActivityLog.map(e => {
+          const timeInfo = e.source === 'history_import'
+            ? '(from browser history)'
+            : `(${formatMs(e.activeTime || 0)} active)`;
+          return `- ${getDisplayName(e.domain)}: ${e.title} ${timeInfo}`;
+        }).join('\n');
+      }
 
       // Format copied snippets
       const copiesContext = copies.length > 0
         ? `\nCOPIED FROM PAGES:\n${copies.map(c => `- "${c.snippet}" (${getDisplayName(c.domain)})`).join('\n')}`
         : '';
 
-      // Format templates
+      // Format templates - use lastDayLabel instead of "Yesterday"
       const formatOutput = {
         bullets: `Format EXACTLY:
-Yesterday:
+${lastDayLabel}:
 • [item 1]
 • [item 2]
 Today:
 • [item 1]
 Blockers: None`,
         slack: `Format EXACTLY:
-*Yesterday:* item1, item2
+*${lastDayLabel}:* item1, item2
 *Today:* item1
 *Blockers:* None`,
         prose: `Write 3 short paragraphs:
-Yesterday I worked on...
+${lastDayLabel} I worked on...
 Today I plan to...
 No blockers.`,
         custom: format // user's custom template
@@ -241,8 +280,9 @@ No blockers.`,
 Use ONLY information from their actual work activity.
 Never invent or guess work items.
 
-YESTERDAY'S ACTIVITY:
-${yesterdayActivity}
+${lastDayLabel.toUpperCase()}'S ACTIVITY:
+${lastActivity}
+${isHistoryImportOnly ? '\nNOTE: These entries are from browser history (no active time tracked).\nInfer what was worked on from page titles and URLs.' : ''}
 
 TODAY SO FAR:
 ${todayActivity}
@@ -253,10 +293,12 @@ ${formatOutput[format] || formatOutput.bullets}
 Rules:
 - Use display names: "Jira" not "atlassian.net"
 - Mention specific PR numbers, ticket IDs if visible in title
-- Yesterday = previous working day (skip weekends)
+- ${lastDayLabel} = last working day with real activity
 - Keep each section to 2-4 items max
 - If data is thin, say so honestly
-- Never make up items`;
+- Never make up items
+- When entries are from browser history, infer work from title and URL
+${isHistoryImportOnly ? '- For history entries: look for patterns (docs = learning, Jira = tickets, GitHub = PRs)' : ''}`;
 
       return {
         system,
@@ -630,6 +672,124 @@ Rules:
       user: question,
       maxTokens: 300
     })
+  },
+
+  /**
+   * Weekly summary - wrap up the week's work
+   */
+  weekSummary: {
+    version: '1.1.0',
+    description: 'Weekly summary with grouped by day format',
+
+    /**
+     * @param {Object} context
+     * @param {Array} context.weekLog - Week's day log entries
+     * @param {boolean} context.hasActivity - Whether any activity exists this week
+     * @param {boolean} context.isHistoryOnly - Whether only history_import data exists
+     * @returns {PromptResult}
+     */
+    build: (context) => {
+      const { weekLog = [], hasActivity = false, isHistoryOnly = false } = context;
+
+      // Handle no activity case
+      if (!hasActivity) {
+        const today = new Date();
+        const dayOfWeek = today.getDay();
+        const isEarlyWeek = dayOfWeek === 1 || dayOfWeek === 2; // Monday or Tuesday
+
+        const system = `You are OpenOwl, helping a developer with their weekly summary.
+
+No activity has been recorded this week yet.
+
+${isEarlyWeek
+  ? 'This is normal - it\'s early in the week (Monday/Tuesday).'
+  : 'It looks like there hasn\'t been much activity tracked this week.'
+}
+
+Don't try to write a summary from empty data. Instead:
+- Explain that activity will accumulate as the week progresses
+- Suggest trying the daily standup instead for today's activity
+- Keep it friendly and brief
+
+Max 80 words.`;
+
+        return {
+          system,
+          user: 'Write my week wrap',
+          maxTokens: 150
+        };
+      }
+
+      // Helper to format time
+      const formatMs = (ms) => {
+        const minutes = Math.round(ms / 60000);
+        return minutes > 60 ? `${Math.round(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+      };
+
+      // Group entries by date
+      const byDate = {};
+      weekLog.forEach(entry => {
+        if (!byDate[entry.date]) {
+          byDate[entry.date] = [];
+        }
+        byDate[entry.date].push(entry);
+      });
+
+      // Format activity grouped by day
+      const activityByDay = Object.keys(byDate)
+        .sort()
+        .map(date => {
+          const dayEntries = byDate[date];
+          const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'long' });
+
+          const formattedEntries = dayEntries.map(e => {
+            const timeInfo = e.source === 'history_import'
+              ? '(from browser history)'
+              : `(${formatMs(e.activeTime || 0)} active)`;
+            return `  - ${getDisplayName(e.domain)}: ${e.title} ${timeInfo}`;
+          }).join('\n');
+
+          return `${dayName} (${date}):\n${formattedEntries}`;
+        })
+        .join('\n\n');
+
+      const system = `You are writing a developer's weekly summary.
+Use ONLY information from their actual work activity.
+Never invent or guess work items.
+
+WEEK'S ACTIVITY (grouped by day):
+${activityByDay}
+${isHistoryOnly ? '\nNOTE: These entries are from browser history (no active time tracked).\nInfer what was worked on from page titles and URLs.' : ''}
+
+Format EXACTLY:
+Shipped:
+• [completed items from the week]
+
+In Progress:
+• [items still being worked on]
+
+Blockers:
+• [any blockers] or "None"
+
+Next week:
+• [suggested focus areas]
+
+Rules:
+- Use display names: "Jira" not "atlassian.net"
+- Reference specific items (PRs, tickets, features)
+- Group related work across days
+- Identify patterns (what dominated the week?)
+- When entries are from browser history, infer work from title and URL
+${isHistoryOnly ? '- For history entries: look for patterns (docs = learning, Jira = tickets, GitHub = PRs)' : ''}
+- Keep each section to 3-5 items max
+- Be specific and actionable`;
+
+      return {
+        system,
+        user: 'Write my week wrap',
+        maxTokens: 500
+      };
+    }
   }
 };
 
@@ -738,7 +898,7 @@ export function validateContext(name, context) {
   // Define expected context fields for each prompt (using PROMPT_KEYS values)
   const expectedFields = {
     ask: ['tabs', 'tabCount', 'totalTabs', 'history', 'copies'],
-    standup: ['todayLog', 'yesterdayLog', 'copies', 'format'],
+    standup: ['todayLog', 'lastActivityLog', 'copies', 'format', 'lastDayLabel', 'isFirstRun'],
     summary: ['todayLog', 'todayStats'],
     briefing: ['yesterdayLog'],
     continueWork: ['pages'],
@@ -747,6 +907,7 @@ export function validateContext(name, context) {
     focus: ['tabs', 'todayLog', 'copies'],
     memorySearch: ['matches', 'question'],
     meetingPrep: ['todayLog', 'yesterdayLog', 'tabs', 'question'],
+    weekSummary: ['weekLog', 'hasActivity', 'isHistoryOnly'],
     // summarizeTabs is deprecated/unused
     summarizeTabs: ['tabs']
   };
