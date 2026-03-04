@@ -79,6 +79,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleLogCopy(message.data, sendResponse);
       return true; // Async response
 
+    case 'GENERATE_INSIGHT':
+      handleGenerateInsight(message.data, sendResponse);
+      return true; // Async response
+
     default:
       console.warn('Unknown message type:', message.type);
       sendResponse({ error: 'Unknown message type' });
@@ -513,6 +517,95 @@ async function handleLogCopy(data, sendResponse) {
     sendResponse({ success: true });
   } catch (error) {
     console.error('Error logging copy:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Generate daily insight from today's activity using LLM
+ */
+async function handleGenerateInsight(data, sendResponse) {
+  try {
+    const todayDate = new Date().toISOString().split('T')[0];
+    const forceRefresh = data?.forceRefresh || false;
+
+    // Check cache first (12-hour TTL) - skip if forceRefresh
+    if (!forceRefresh) {
+      const cached = await storage.getCachedInsight(todayDate);
+      if (cached && cached.text) {
+        console.log('[Insight] Using cached insight from', cached.generatedAt);
+        sendResponse({
+          success: true,
+          data: {
+            text: cached.text,
+            cached: true,
+            generatedAt: cached.generatedAt
+          }
+        });
+        return;
+      }
+    } else {
+      console.log('[Insight] Force refresh requested, bypassing cache');
+    }
+
+    // Get today's data
+    const dayLog = await storage.getDayLog();
+    const stats = await storage.getTodayStats();
+
+    // Get preferences for filtering
+    const preferences = await storage.getPreferences();
+
+    // Filter by preferences
+    const filterByPrefs = (entries) => {
+      if (!preferences?.neverTrack?.length) return entries;
+      return entries.filter(e =>
+        !preferences.neverTrack.some(d => e.domain?.includes(d))
+      );
+    };
+
+    const filteredLog = filterByPrefs(dayLog);
+
+    // Don't generate insight if we have no meaningful data
+    if (filteredLog.length === 0) {
+      sendResponse({
+        success: true,
+        data: { text: null, reason: 'no_data' }
+      });
+      return;
+    }
+
+    // Build prompt using registry
+    const { system, user, maxTokens } = getPrompt('dayInsight', {
+      dayLog: filteredLog,
+      stats
+    });
+
+    // Get settings for LLM
+    const settings = await storage.getSettings();
+
+    // Call LLM
+    const text = await callLLM({
+      provider: settings.selectedProvider,
+      apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
+      model: settings.selectedModel,
+      prompt: user || 'Analyze my day',
+      systemPrompt: system,
+      ollamaUrl: settings.ollamaUrl
+    });
+
+    // Cache the result (12-hour TTL)
+    await storage.cacheInsight(todayDate, text);
+
+    sendResponse({
+      success: true,
+      data: {
+        text,
+        cached: false,
+        generatedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error generating insight:', error);
     sendResponse({ success: false, error: error.message });
   }
 }

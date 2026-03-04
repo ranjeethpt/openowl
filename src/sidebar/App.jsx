@@ -143,7 +143,6 @@ function App() {
               onNavigateToAsk={(prompt) => {
                 setCurrentView('ask');
                 if (prompt) {
-                  // Pre-fill and auto-run in Ask will be handled by passing message
                   setChatMessages(prev => [...prev, { role: 'user', text: prompt, autoRun: true }]);
                 }
               }}

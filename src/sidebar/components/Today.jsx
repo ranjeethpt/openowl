@@ -13,9 +13,16 @@ export default function Today({ onNavigateToAsk }) {
   const [showImportBanner, setShowImportBanner] = useState(false);
   const [historyImport, setHistoryImport] = useState(null);
 
+  // LLM insight state
+  const [insightText, setInsightText] = useState(null);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightCached, setInsightCached] = useState(false);
+
+
   useEffect(() => {
     loadTodayData();
     checkHistoryImport();
+    loadInsight();
   }, []);
 
   async function loadTodayData() {
@@ -97,51 +104,83 @@ export default function Today({ onNavigateToAsk }) {
     });
   }
 
-  function generateSmartSummary() {
-    if (dayLog.length === 0) return null;
+  async function loadInsight(forceRefresh = false) {
+    if (insightLoading) return;
 
-    // Calculate time by domain
-    const domainTimes = {};
-    dayLog.forEach(entry => {
-      const domain = entry.domain || 'unknown';
-      domainTimes[domain] = (domainTimes[domain] || 0) + (entry.activeTime || 0);
-    });
+    console.log('[Today] loadInsight called with forceRefresh =', forceRefresh);
+    setInsightLoading(true);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'GENERATE_INSIGHT',
+        data: { forceRefresh }
+      });
 
-    // Sort by time spent
-    const sortedDomains = Object.entries(domainTimes)
-      .sort((a, b) => b[1] - a[1])
-      .map(([domain, time]) => ({ domain, time }));
+      console.log('[Today] GENERATE_INSIGHT response:', response);
 
-    const topDomain = sortedDomains[0];
-    const researchDomains = sortedDomains.slice(1, 3).filter(d => d.time > 60000); // > 1 min
+      if (!response.success) {
+        console.error('Failed to generate insight:', response.error);
+        setInsightText(null);
+        return;
+      }
 
-    // Check for email/calendar
-    const emailEntry = dayLog.find(e =>
-      e.domain?.includes('mail.google') ||
-      e.domain?.includes('outlook') ||
-      e.domain?.includes('gmail')
-    );
-
-    return {
-      topDomain,
-      researchDomains,
-      emailEntry
-    };
+      if (response.data.text) {
+        setInsightText(response.data.text);
+        setInsightCached(response.data.cached || false);
+        console.log('[Today] Insight loaded, cached =', response.data.cached);
+      } else {
+        setInsightText(null);
+      }
+    } catch (err) {
+      console.error('Error loading insight:', err);
+      setInsightText(null);
+    } finally {
+      setInsightLoading(false);
+    }
   }
 
-  function getDomainsByTime() {
-    if (dayLog.length === 0) return [];
+  function refreshInsight() {
+    // Force regenerate by bypassing cache
+    setInsightText(null);
+    setInsightCached(false);
+    loadInsight(true); // Pass forceRefresh=true
+  }
 
-    const domainTimes = {};
+  function getTopDomains() {
+    if (dayLog.length === 0) return { domains: [], hasTimeData: false };
+
+    const domainStats = {};
+    let totalTimeTracked = 0;
+
     dayLog.forEach(entry => {
       const domain = entry.domain || 'unknown';
-      domainTimes[domain] = (domainTimes[domain] || 0) + (entry.activeTime || 0);
+      if (!domainStats[domain]) {
+        domainStats[domain] = { time: 0, count: 0 };
+      }
+      domainStats[domain].time += (entry.activeTime || 0);
+      domainStats[domain].count += 1;
+      totalTimeTracked += (entry.activeTime || 0);
     });
 
-    return Object.entries(domainTimes)
-      .sort((a, b) => b[1] - a[1])
+    // Check if we have meaningful time data (at least 30 seconds total)
+    const hasTimeData = totalTimeTracked > 30000;
+
+    // Sort by time if we have it, otherwise by count
+    const sorted = Object.entries(domainStats)
+      .sort((a, b) => {
+        if (hasTimeData) {
+          return b[1].time - a[1].time;
+        } else {
+          return b[1].count - a[1].count;
+        }
+      })
       .slice(0, 5)
-      .map(([domain, time]) => ({ domain, time }));
+      .map(([domain, stats]) => ({
+        domain,
+        time: stats.time,
+        count: stats.count
+      }));
+
+    return { domains: sorted, hasTimeData };
   }
 
   function getHourlyGroups() {
@@ -233,7 +272,7 @@ export default function Today({ onNavigateToAsk }) {
     let prompt;
     switch (type) {
       case 'standup':
-        prompt = 'Write my daily standup based on everything I worked on today across all my open tabs. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]';
+        prompt = 'Write my daily standup based on everything I worked on today. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]';
         break;
       case 'summary':
         prompt = 'Give me a detailed summary of my workday based on my browsing history. What did I achieve? What were the main themes? Group by activity type.';
@@ -245,6 +284,7 @@ export default function Today({ onNavigateToAsk }) {
         prompt = '';
     }
 
+    // Navigate to Ask tab with prompt
     if (onNavigateToAsk) {
       onNavigateToAsk(prompt);
     }
@@ -287,9 +327,12 @@ export default function Today({ onNavigateToAsk }) {
     );
   }
 
-  const summary = generateSmartSummary();
-  const domainsByTime = getDomainsByTime();
-  const maxTime = domainsByTime[0]?.time || 1;
+  const topDomainsResult = getTopDomains();
+  const topDomains = topDomainsResult.domains;
+  const hasTimeData = topDomainsResult.hasTimeData;
+  const maxValue = hasTimeData
+    ? (topDomains[0]?.time || 1)
+    : (topDomains[0]?.count || 1);
   const hourlyGroups = getHourlyGroups();
 
   return (
@@ -314,19 +357,20 @@ export default function Today({ onNavigateToAsk }) {
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {/* Section 1: Today's Focus Card */}
-      {summary && (
+        {/* Section 1: Today's Insight (LLM-powered) */}
+      {(insightText || insightLoading || dayLog.length > 0) && (
         <div className="p-4 bg-owl-blue/5 border-b border-owl-blue/10">
           <div className="flex items-center justify-between mb-0.5">
             <h2 className="font-semibold text-gray-900">
-              Today's Focus
+              Your Work Patterns
             </h2>
             <button
-              onClick={loadTodayData}
-              className="text-gray-400 hover:text-owl-blue transition-colors text-sm"
-              title="Refresh"
+              onClick={refreshInsight}
+              disabled={insightLoading}
+              className="text-gray-400 hover:text-owl-blue transition-colors text-sm disabled:opacity-50"
+              title={insightCached ? "Refresh insight (cached)" : "Refresh insight"}
             >
-              🔄
+              {insightLoading ? '⏳' : '🔄'}
             </button>
           </div>
           <p className="text-xs text-gray-500 mb-3">
@@ -337,65 +381,65 @@ export default function Today({ onNavigateToAsk }) {
             })}
           </p>
 
-          <div className="bg-white border border-owl-blue/10 rounded-lg p-3 space-y-3 shadow-sm">
-            {/* Main focus */}
-            <div>
-              <div className="text-sm text-gray-700 flex items-center gap-2">
-                <span className="text-base">🎯</span>
-                <span className="font-semibold">{getDisplayName(summary.topDomain.domain)}</span>
+          <div className="bg-white border border-owl-blue/10 rounded-lg p-4 shadow-sm">
+            {insightLoading ? (
+              <div className="flex items-center gap-3 text-gray-500">
+                <div className="animate-spin text-xl">⚙️</div>
+                <span className="text-sm">Analyzing your activity...</span>
               </div>
-              <div className="text-xs text-gray-500 ml-6">
-                Main focus today ({formatTime(summary.topDomain.time)} active)
-              </div>
-            </div>
-
-            {/* Research */}
-            {summary.researchDomains.length > 0 && (
-              <div>
-                <div className="text-sm text-gray-700 flex items-center gap-2">
-                  <span className="text-base">🔍</span>
-                  <span className="font-medium text-gray-600">Also researched:</span>
-                </div>
-                <div className="text-xs text-gray-500 ml-6">
-                  {summary.researchDomains.map(d => getDisplayName(d.domain)).join(', ')}
-                </div>
-              </div>
-            )}
-
-            {/* Email check */}
-            {summary.emailEntry && (
-              <div className="text-xs text-gray-600 flex items-center gap-2 ml-1">
-                <span>📬</span>
-                <span>Checked email at {formatTimestamp(summary.emailEntry.visitedAt)}</span>
+            ) : insightText ? (
+              <>
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                  {insightText}
+                </p>
+                {stats && stats.totalActiveTime > 0 && (
+                  <div className="mt-3 flex gap-4 text-xs text-gray-500 pt-3 border-t border-gray-100">
+                    <span>📊 {stats.totalVisits} visits</span>
+                    <span>⏱️ {formatTime(stats.totalActiveTime)} active</span>
+                    <span>📄 {stats.uniquePages} unique pages</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-2">
+                <p className="text-sm text-gray-500">
+                  Start browsing to see insights about your work patterns...
+                </p>
               </div>
             )}
           </div>
 
-          {/* Quick Actions */}
-          <div className="grid grid-cols-2 gap-2 mt-4">
-            <button
-              onClick={() => handleQuickAction('standup')}
-              className="bg-white border border-gray-200 text-gray-700 text-xs py-2 px-2 rounded hover:border-owl-blue hover:text-owl-blue transition shadow-sm flex items-center justify-center gap-1"
-            >
-              <span>✍️</span> Write standup
-            </button>
-            <button
-              onClick={() => handleQuickAction('summary')}
-              className="bg-white border border-gray-200 text-gray-700 text-xs py-2 px-2 rounded hover:border-owl-blue hover:text-owl-blue transition shadow-sm flex items-center justify-center gap-1"
-            >
-              <span>📊</span> Day summary
-            </button>
-            <button
-              onClick={() => handleQuickAction('focus')}
-              className="col-span-2 bg-white border border-gray-200 text-gray-700 text-xs py-2 px-2 rounded hover:border-owl-blue hover:text-owl-blue transition shadow-sm flex items-center justify-center gap-1"
-            >
-              <span>🎯</span> What to focus on?
-            </button>
-          </div>
         </div>
       )}
 
-      {/* Section 2: Stats Row */}
+      {/* Section 2: Quick Actions */}
+      <div className="p-4 border-b border-gray-200">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">
+          Quick Actions
+        </h3>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            onClick={() => handleQuickAction('standup')}
+            className="bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
+          >
+            ✍️ Write standup
+          </button>
+          <button
+            onClick={() => handleQuickAction('summary')}
+            className="bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
+          >
+            📊 Day summary
+          </button>
+          <button
+            onClick={() => handleQuickAction('focus')}
+            className="bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
+          >
+            🎯 What to focus on?
+          </button>
+        </div>
+      </div>
+
+      {/* Section 3: Stats Row */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-around text-center">
           <div>
@@ -421,15 +465,16 @@ export default function Today({ onNavigateToAsk }) {
         </div>
       </div>
 
-      {/* Section 3: Top Domains by Time */}
-      {domainsByTime.length > 0 && (
+      {/* Section 3: Top Domains */}
+      {topDomains.length > 0 && (
         <div className="p-4 border-b border-gray-200">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            Top Domains by Time
+            {hasTimeData ? 'Top Domains by Time' : 'Top Domains by Visits'}
           </h3>
           <div className="space-y-2">
-            {domainsByTime.map((item, i) => {
-              const barWidth = Math.round((item.time / maxTime) * 100);
+            {topDomains.map((item, i) => {
+              const value = hasTimeData ? item.time : item.count;
+              const barWidth = Math.round((value / maxValue) * 100);
               return (
                 <div key={i}>
                   <div className="flex items-center justify-between text-xs mb-1">
@@ -437,7 +482,7 @@ export default function Today({ onNavigateToAsk }) {
                       {getDisplayName(item.domain)}
                     </span>
                     <span className="text-gray-500 ml-2">
-                      {formatTime(item.time)}
+                      {hasTimeData ? formatTime(item.time) : `${item.count} visits`}
                     </span>
                   </div>
                   <div className="w-full bg-gray-100 rounded-full h-1.5">
@@ -506,32 +551,6 @@ export default function Today({ onNavigateToAsk }) {
         )}
       </div>
 
-      {/* Section 5: Quick Actions */}
-      <div className="p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">
-          Quick Actions
-        </h3>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => handleQuickAction('standup')}
-            className="flex-1 bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
-          >
-            ✍️ Write standup
-          </button>
-          <button
-            onClick={() => handleQuickAction('summary')}
-            className="flex-1 bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
-          >
-            📊 Day summary
-          </button>
-          <button
-            onClick={() => handleQuickAction('focus')}
-            className="flex-1 bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
-          >
-            🎯 What to focus on?
-          </button>
-        </div>
-      </div>
       </div>
     </div>
   );
