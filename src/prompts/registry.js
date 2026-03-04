@@ -150,70 +150,89 @@ Rules:
    * Generate daily standup from activity
    */
   standup: {
-    version: '2.1.0',
-    description: 'Generate daily standup from day log activity',
+    version: '3.0.0',
+    description: 'Generate daily standup from day log activity with format support',
 
     /**
      * @param {Object} context
      * @param {Array} context.todayLog - Today's day log entries with full metadata
      * @param {Array} [context.yesterdayLog] - Yesterday's day log entries
-     * @param {Object} [context.todayStats] - Today's statistics
+     * @param {Array} [context.copies] - Copied snippets
+     * @param {string} [context.format] - Output format: bullets|slack|prose|custom
      * @returns {PromptResult}
      */
     build: (context) => {
-      const { todayLog = [], yesterdayLog = [], todayStats = {} } = context;
+      const { todayLog = [], yesterdayLog = [], copies = [], format = 'bullets' } = context;
 
-      const liveEntriesToday = todayLog.filter(e => e.source !== 'history_import');
-      const historyEntriesToday = todayLog.filter(e => e.source === 'history_import');
-
-      const liveEntriesYesterday = yesterdayLog.filter(e => e.source !== 'history_import');
-      const historyEntriesYesterday = yesterdayLog.filter(e => e.source === 'history_import');
-
-      const formatCombinedLog = (live, history) => {
-        const parts = [];
-        if (live.length > 0) parts.push(formatLogEntries(live));
-        if (history.length > 0) parts.push(formatLogEntries(history, true));
-        return parts.length > 0 ? parts.join('\n') : 'No activity';
+      // Helper to format time
+      const formatMs = (ms) => {
+        const minutes = Math.round(ms / 60000);
+        return minutes > 60 ? `${Math.round(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
       };
 
+      // Format today's activity
       const todayActivity = todayLog.length > 0
-        ? formatCombinedLog(liveEntriesToday, historyEntriesToday)
-        : 'No activity logged today yet';
+        ? todayLog.map(e =>
+            `- ${getDisplayName(e.domain)}: ${e.title} (${formatMs(e.activeTime || 0)} active)`
+          ).join('\n')
+        : 'No activity recorded today yet';
 
+      // Format yesterday's activity
       const yesterdayActivity = yesterdayLog.length > 0
-        ? formatCombinedLog(liveEntriesYesterday, historyEntriesYesterday)
-        : 'No activity from yesterday';
+        ? yesterdayLog.map(e =>
+            `- ${getDisplayName(e.domain)}: ${e.title} (${formatMs(e.activeTime || 0)} active)`
+          ).join('\n')
+        : 'No activity recorded yesterday';
 
-      const statsContext = todayStats.totalVisits
-        ? `\nToday's stats: ${todayStats.totalVisits} visits, ${todayStats.uniquePages} unique pages, ${Math.round((todayStats.totalActiveTime || 0) / 60000)}m active time`
+      // Format copied snippets
+      const copiesContext = copies.length > 0
+        ? `\nCOPIED FROM PAGES:\n${copies.map(c => `- "${c.snippet}" (${getDisplayName(c.domain)})`).join('\n')}`
         : '';
 
-      const system = `You are helping write a daily standup update based on browser activity logs.
+      // Format templates
+      const formatOutput = {
+        bullets: `Format EXACTLY:
+Yesterday:
+• [item 1]
+• [item 2]
+Today:
+• [item 1]
+Blockers: None`,
+        slack: `Format EXACTLY:
+*Yesterday:* item1, item2
+*Today:* item1
+*Blockers:* None`,
+        prose: `Write 3 short paragraphs:
+Yesterday I worked on...
+Today I plan to...
+No blockers.`,
+        custom: format // user's custom template
+      };
 
-Some entries are from browser history (no page content extracted). Use the page title and URL to infer what was worked on. A PR title is self-explanatory. Visit count indicates importance — visited 5+ times = actively worked on.
+      const system = `You are writing a developer's daily standup.
+Use ONLY information from their actual work activity.
+Never invent or guess work items.
 
-Today's activity:
-${todayActivity}${statsContext}
-
-Yesterday's activity:
+YESTERDAY'S ACTIVITY:
 ${yesterdayActivity}
 
-STRICT output format:
-Yesterday: [1-3 bullet points about what was worked on]
-Today: [1-3 bullet points about current/planned work]
-Blockers: [items or "None"]
+TODAY SO FAR:
+${todayActivity}
+${copiesContext}
+
+${formatOutput[format] || formatOutput.bullets}
 
 Rules:
-• Be specific - mention actual PRs, issues, docs, tickets visible in logs
-• Infer work from visited pages (GitHub PRs = reviewing, Jira = working on tickets, docs = learning)
-• 1-3 bullets per section maximum
-• Past tense for yesterday, present/future for today
-• Focus on work items, not just "browsed GitHub"
-• If today log is empty, base "Today" on yesterday's trajectory
-• No filler words or generic statements`;
+- Use display names: "Jira" not "atlassian.net"
+- Mention specific PR numbers, ticket IDs if visible in title
+- Yesterday = previous working day (skip weekends)
+- Keep each section to 2-4 items max
+- If data is thin, say so honestly
+- Never make up items`;
 
       return {
         system,
+        user: 'Write my standup',
         maxTokens: 400
       };
     }
@@ -411,73 +430,60 @@ Rules:
   },
 
   /**
-   * Insights from today's activity log
+   * Insights from today's activity log - simple but wow
    */
   dayInsight: {
-    version: '1.0.1',
-    description: 'Generate insights from today\'s day log',
+    version: '3.0.0',
+    description: 'Generate one-sentence insight from browsing activity',
 
-    /**
-     * @param {Object} context
-     * @param {Array} context.dayLog - Today's complete day log entries
-     * @param {Object} context.stats - Today's statistics
-     * @param {Object} [context.patterns] - Week's patterns for comparison
-     * @returns {PromptResult}
-     */
     build: (context) => {
-      const { dayLog = [], stats = {}, patterns = {} } = context;
+      const { dayLog = [], stats = {} } = context;
 
-      const logSummary = dayLog.length > 0
-        ? `${dayLog.length} page visits, ${stats.uniquePages || 0} unique pages, ${Math.round((stats.totalActiveTime || 0) / 60000)}m active time`
-        : 'No activity today';
+      // Group by domain and collect page titles
+      const domainGroups = {};
+      dayLog.forEach(entry => {
+        const domain = entry.domain || 'unknown';
+        if (!domainGroups[domain]) {
+          domainGroups[domain] = { visits: 0, titles: [] };
+        }
+        domainGroups[domain].visits += (entry.visitCount || 1);
 
-      const topDomains = (stats.topDomains || [])
-        .slice(0, 5)
-        .map(d => `- ${d.domain}: ${d.count} visits`)
+        // Collect interesting titles only
+        if (entry.title &&
+            !entry.title.includes('New Tab') &&
+            !entry.title.includes('Google Search') &&
+            entry.title.length > 5) {
+          domainGroups[domain].titles.push(entry.title);
+        }
+      });
+
+      // Top 6 domains with sample titles
+      const activity = Object.entries(domainGroups)
+        .sort((a, b) => b[1].visits - a[1].visits)
+        .slice(0, 6)
+        .map(([domain, data]) => {
+          const name = getDisplayName(domain);
+          const samples = data.titles.slice(0, 2).join(', ');
+          return samples ? `${name}: ${samples}` : name;
+        })
         .join('\n');
 
-      const copiedContent = dayLog
-        .filter(e => e.copied && e.copied.length > 0)
-        .flatMap(e => e.copied)
-        .slice(0, 5)
-        .map(c => typeof c === 'string'
-          ? `"${c.substring(0, 100)}..."`
-          : `"${c.text?.substring(0, 100) || ''}..."`)
-        .join('\n');
+      const system = `Analyze this developer's browsing and write ONE sentence that captures what they're working on.
 
-      const revisitedPages = dayLog
-        .filter(e => e.revisited)
-        .map(e => `- ${e.title} (${e.visitCount} times)`)
-        .slice(0, 5)
-        .join('\n');
+${activity}
 
-      const system = `You are analyzing today's work activity to provide useful insights.
+BE SPECIFIC. Connect the dots. Make it feel like magic.
 
-Today's summary:
-${logSummary}
+Good: "Building a Chrome extension with React - heavy Vite docs and Manifest V3 debugging"
+Good: "Deep in LLM integration - bouncing between OpenAI docs, prompt engineering, and rate limit errors"
+Bad: "Working on various development tasks across multiple tools"
 
-Top domains:
-${topDomains || 'None'}
-
-${revisitedPages ? `Revisited pages:\n${revisitedPages}\n` : ''}
-${copiedContent ? `Text copied today:\n${copiedContent}\n` : ''}
-
-Output format:
-What you worked on: [2-3 sentence summary]
-Focus areas: [list top 2-3 topics/projects]
-Interesting pattern: [one specific observation]
-
-Rules:
-• Be specific - mention actual tools, projects, features visible in logs
-• Connect the dots between different activities (e.g., reading docs + code = learning new feature)
-• Revisited pages suggest importance or difficulty
-• Copied text shows implementation work
-• No generic statements
-• Keep total under 150 words`;
+Write ONLY one punchy sentence. No fluff.`;
 
       return {
         system,
-        maxTokens: 400
+        user: 'What am I working on?',
+        maxTokens: 100
       };
     }
   }
@@ -526,7 +532,7 @@ export function validateContext(name, context) {
   // Define expected context fields for each prompt
   const expectedFields = {
     ask: ['tabs', 'tabCount', 'totalTabs', 'history', 'copies'],
-    standup: ['todayLog', 'yesterdayLog'],
+    standup: ['todayLog', 'yesterdayLog', 'copies', 'format'],
     summarizeTabs: ['tabs'],
     summary: ['todayLog', 'todayStats'],
     briefing: ['yesterdayLog'],

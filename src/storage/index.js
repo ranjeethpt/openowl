@@ -442,3 +442,62 @@ export async function getCopiedSnippets() {
 
   return snippets;
 }
+
+// ============================================
+// Insight Caching (chrome.storage.local)
+// ============================================
+
+/**
+ * Cache LLM-generated insight for today
+ * @param {string} date - YYYY-MM-DD format
+ * @param {string} text - Insight text from LLM
+ * @returns {Promise<void>}
+ */
+export async function cacheInsight(date, text) {
+  const cache = {
+    date,
+    text,
+    generatedAt: new Date().toISOString()
+  };
+
+  return chrome.storage.local.set({ [`insight_${date}`]: cache });
+}
+
+/**
+ * Get cached insight for today (12-hour TTL)
+ * @param {string} date - YYYY-MM-DD format
+ * @returns {Promise<{text: string, generatedAt: string} | null>}
+ */
+export async function getCachedInsight(date) {
+  const result = await chrome.storage.local.get([`insight_${date}`]);
+  const cached = result[`insight_${date}`];
+
+  if (!cached) return null;
+
+  // Check if cache is still valid (12 hours = 43200000 ms)
+  const generatedAt = new Date(cached.generatedAt).getTime();
+  const now = Date.now();
+  const age = now - generatedAt;
+  const TTL = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+
+  if (age > TTL) {
+    // Cache expired, clean up
+    await chrome.storage.local.remove([`insight_${date}`]);
+    return null;
+  }
+
+  return cached;
+}
+
+/**
+ * Clear all cached insights (for testing/debugging)
+ * @returns {Promise<void>}
+ */
+export async function clearInsightCache() {
+  const allData = await chrome.storage.local.get(null);
+  const insightKeys = Object.keys(allData).filter(k => k.startsWith('insight_'));
+
+  if (insightKeys.length > 0) {
+    await chrome.storage.local.remove(insightKeys);
+  }
+}
