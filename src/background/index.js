@@ -6,6 +6,7 @@
 import { callLLM } from '../llm/index.js';
 import * as storage from '../storage/index.js';
 import { getPrompt } from '../prompts/registry.js';
+import { detectTemplate } from '../utils/intentDetector.js';
 
 // ============================================
 // Service Worker Lifecycle
@@ -404,69 +405,108 @@ async function buildFullContext(question) {
  */
 async function handleAskAI(data, sendResponse) {
   try {
+    const { question, messages = [] } = data;
+
+    console.log('[ASK_AI] Received:', { question, messagesCount: messages.length });
+    console.log('[ASK_AI] Messages:', JSON.stringify(messages, null, 2));
+
     // Get settings for API key and model
     const settings = await storage.getSettings();
-    const provider = data.provider || settings.selectedProvider;
-    const apiKey = data.apiKey || settings.apiKeys?.[provider] || '';
 
-    if (!apiKey && provider !== 'ollama') {
-      throw new Error('API key not configured. Please set it in Settings.');
-    }
+    // Step 1: Check for template match
+    const detected = detectTemplate(question);
 
-    // Build full context if requested
-    let context = null;
-    if (data.includeContext !== false) {
-      context = await buildFullContext(data.prompt);
-    }
+    if (detected) {
+      const { key, template } = detected;
+      console.log(`[ASK_AI] Template detected: ${key}`);
 
-    // Build system prompt using prompt registry (if not overridden)
-    let systemPrompt;
+      // Gather exactly what this template needs
+      const templateData = await template.gather(question);
 
-    if (data.systemPrompt) {
-      // Custom system prompt provided - use as-is
-      systemPrompt = data.systemPrompt;
-    } else if (context) {
-      // Use 'ask' prompt from registry with full context
-      const prompt = getPrompt('ask', {
-        tabs: context.tabs,
-        tabCount: context.tabsUsed,
-        totalTabs: context.totalTabs,
-        history: context.history,
-        copies: context.copies
+      // Purpose-built prompt from registry
+      const builtPrompt = getPrompt(template.prompt, templateData);
+      const { system, user, maxTokens } = builtPrompt;
+
+      // Use the user message from prompt, or fall back to the question
+      const currentPrompt = user || question;
+
+      // Call LLM with full conversation history
+      const text = await callLLM({
+        provider: settings.selectedProvider,
+        apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
+        model: settings.selectedModel,
+        prompt: currentPrompt,
+        systemPrompt: system,
+        messages, // ← multi-turn history
+        maxTokens,
+        ollamaUrl: settings.ollamaUrl
       });
-      systemPrompt = prompt.system;
-    } else {
-      // No context - use simple fallback
-      systemPrompt = 'You are OpenOwl, an AI assistant for developers.';
+
+      sendResponse({
+        success: true,
+        data: {
+          text,
+          templateUsed: key,
+          context: summarizeContext(templateData)
+        }
+      });
+      return;
     }
 
-    // Call LLM
-    const response = await callLLM({
-      provider: provider,
-      apiKey: apiKey,
-      model: data.model || settings.selectedModel,
-      prompt: data.prompt,
-      systemPrompt: systemPrompt,
-      ollamaUrl: data.ollamaUrl || settings.ollamaUrl
+    // No template match → general full context
+    console.log('[ASK_AI] No template match, using full context');
+    const context = await buildFullContext(question);
+    const builtPrompt = getPrompt('ask', {
+      tabs: context.tabs,
+      tabCount: context.tabsUsed,
+      totalTabs: context.totalTabs,
+      history: context.history,
+      copies: context.copies
+    });
+
+    const text = await callLLM({
+      provider: settings.selectedProvider,
+      apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
+      model: settings.selectedModel,
+      prompt: question,
+      systemPrompt: builtPrompt.system,
+      messages, // ← multi-turn history
+      maxTokens: builtPrompt.maxTokens || 2000,
+      ollamaUrl: settings.ollamaUrl
     });
 
     sendResponse({
       success: true,
       data: {
-        text: response,
-        context: context ? {
+        text,
+        context: {
           tabsUsed: context.tabsUsed,
           totalTabs: context.totalTabs,
           historyEntries: context.historyEntries,
           questionType: context.questionType,
           estimatedTokens: context.estimatedTokens
-        } : null
+        }
       }
     });
   } catch (error) {
     console.error('Error asking AI:', error);
     sendResponse({ success: false, error: error.message });
   }
+}
+
+/**
+ * Summarize context for UI display
+ */
+function summarizeContext(data) {
+  const keys = Object.keys(data);
+  const summary = {};
+
+  if (data.todayLog) summary.todayEntries = data.todayLog.length;
+  if (data.yesterdayLog) summary.yesterdayEntries = data.yesterdayLog.length;
+  if (data.matches) summary.matchesFound = data.matches.length;
+  if (data.tabs) summary.tabsUsed = data.tabs.length;
+
+  return summary;
 }
 
 /**

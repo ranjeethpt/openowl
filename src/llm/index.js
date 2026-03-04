@@ -4,23 +4,23 @@
  */
 
 /**
- * Call LLM with streaming support
- * @param {Object} config - { provider, apiKey, model, prompt, systemPrompt, ollamaUrl }
+ * Call LLM with streaming support and multi-turn conversations
+ * @param {Object} config - { provider, apiKey, model, prompt, systemPrompt, messages, maxTokens, ollamaUrl }
  * @param {Function} onChunk - Callback for streaming chunks
  * @returns {Promise<string>} Full response text
  */
 export async function callLLM(config, onChunk = null) {
-  const { provider, apiKey, model, prompt, systemPrompt, ollamaUrl } = config;
+  const { provider, apiKey, model, prompt, systemPrompt, messages = [], maxTokens, ollamaUrl } = config;
 
   switch (provider) {
     case 'claude':
-      return callClaude({ apiKey, model, prompt, systemPrompt }, onChunk);
+      return callClaude({ apiKey, model, prompt, systemPrompt, messages, maxTokens }, onChunk);
     case 'openai':
-      return callOpenAI({ apiKey, model, prompt, systemPrompt }, onChunk);
+      return callOpenAI({ apiKey, model, prompt, systemPrompt, messages, maxTokens }, onChunk);
     case 'gemini':
-      return callGemini({ apiKey, model, prompt, systemPrompt }, onChunk);
+      return callGemini({ apiKey, model, prompt, systemPrompt, messages, maxTokens }, onChunk);
     case 'ollama':
-      return callOllama({ model, prompt, systemPrompt, ollamaUrl }, onChunk);
+      return callOllama({ model, prompt, systemPrompt, messages, maxTokens, ollamaUrl }, onChunk);
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -30,7 +30,24 @@ export async function callLLM(config, onChunk = null) {
  * Call Claude API (Anthropic)
  * @private
  */
-async function callClaude({ apiKey, model, prompt, systemPrompt }, onChunk) {
+async function callClaude({ apiKey, model, prompt, systemPrompt, messages = [], maxTokens }, onChunk) {
+  // Build messages array: history + current prompt
+  const messageHistory = messages
+    .slice(-10) // Cap at last 10 messages
+    .filter(m => m.role !== 'error' && m.text && m.text.trim()) // Filter errors and empty
+    .map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.text
+    }));
+
+  // Only add prompt if it's not already the last message
+  const lastMsg = messages[messages.length - 1];
+  const promptAlreadyAdded = lastMsg && lastMsg.role === 'user' && lastMsg.text === prompt;
+
+  if (prompt && prompt.trim() && !promptAlreadyAdded) {
+    messageHistory.push({ role: 'user', content: prompt });
+  }
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -40,14 +57,9 @@ async function callClaude({ apiKey, model, prompt, systemPrompt }, onChunk) {
     },
     body: JSON.stringify({
       model: model || 'claude-3-5-sonnet-20241022',
-      max_tokens: 4096,
+      max_tokens: maxTokens || 4096,
       system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
+      messages: messageHistory,
       stream: !!onChunk
     })
   });
@@ -109,7 +121,33 @@ async function handleClaudeStream(response, onChunk) {
  * Call OpenAI API
  * @private
  */
-async function callOpenAI({ apiKey, model, prompt, systemPrompt }, onChunk) {
+async function callOpenAI({ apiKey, model, prompt, systemPrompt, messages = [], maxTokens }, onChunk) {
+  // Build messages array: system + history + current
+  const messageHistory = [
+    { role: 'system', content: systemPrompt }
+  ];
+
+  // Add conversation history (filter out empty and error messages)
+  messages
+    .slice(-10)
+    .filter(m => m.role !== 'error' && m.text && m.text.trim()) // Filter errors and empty
+    .forEach(m => {
+      messageHistory.push({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text
+      });
+    });
+
+  // Only add prompt if it's not already the last message
+  const lastMsg = messages[messages.length - 1];
+  const promptAlreadyAdded = lastMsg && lastMsg.role === 'user' && lastMsg.text === prompt;
+
+  if (prompt && prompt.trim() && !promptAlreadyAdded) {
+    messageHistory.push({ role: 'user', content: prompt });
+  }
+
+  console.log('[OpenAI] Sending messages:', JSON.stringify(messageHistory, null, 2));
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -118,10 +156,8 @@ async function callOpenAI({ apiKey, model, prompt, systemPrompt }, onChunk) {
     },
     body: JSON.stringify({
       model: model || 'gpt-4o',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ],
+      messages: messageHistory,
+      max_tokens: maxTokens,
       stream: !!onChunk
     })
   });
@@ -183,26 +219,54 @@ async function handleOpenAIStream(response, onChunk) {
  * Call Google Gemini API
  * @private
  */
-async function callGemini({ apiKey, model, prompt, systemPrompt }, onChunk) {
+async function callGemini({ apiKey, model, prompt, systemPrompt, messages = [], maxTokens }, onChunk) {
   // Use v1beta - it's the stable API for Gemini 2.5+ models
   const modelName = model || 'gemini-2.5-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:${onChunk ? 'streamGenerateContent' : 'generateContent'}?key=${apiKey}`;
+
+  // Build contents array with history
+  const contents = [];
+
+  // Add conversation history (filter errors and empty)
+  messages
+    .slice(-10)
+    .filter(m => m.role !== 'error' && m.text && m.text.trim())
+    .forEach(m => {
+      contents.push({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }]
+      });
+    });
+
+  // Only add prompt if it's not already the last message
+  const lastMsg = messages[messages.length - 1];
+  const promptAlreadyAdded = lastMsg && lastMsg.role === 'user' && lastMsg.text === prompt;
+
+  if (prompt && prompt.trim() && !promptAlreadyAdded) {
+    contents.push({
+      role: 'user',
+      parts: [{ text: prompt }]
+    });
+  }
+
+  const body = {
+    systemInstruction: systemPrompt ? {
+      parts: [{ text: systemPrompt }]
+    } : undefined,
+    contents
+  };
+
+  // Add generation config if maxTokens specified
+  if (maxTokens) {
+    body.generationConfig = { maxOutputTokens: maxTokens };
+  }
 
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      systemInstruction: systemPrompt ? {
-        parts: [{ text: systemPrompt }]
-      } : undefined,
-      contents: [
-        {
-          parts: [{ text: prompt }]
-        }
-      ]
-    })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {
@@ -259,19 +323,47 @@ async function handleGeminiStream(response, onChunk) {
  * Call local Ollama API
  * @private
  */
-async function callOllama({ model, prompt, systemPrompt, ollamaUrl }, onChunk) {
+async function callOllama({ model, prompt, systemPrompt, messages = [], maxTokens, ollamaUrl }, onChunk) {
   const baseUrl = ollamaUrl || 'http://localhost:11434';
+
+  // Build prompt with history for Ollama (doesn't support messages array)
+  const validMessages = messages
+    .slice(-10)
+    .filter(m => m.role !== 'error' && m.text && m.text.trim());
+
+  // Check if prompt is already in messages
+  const lastMsg = messages[messages.length - 1];
+  const promptAlreadyAdded = lastMsg && lastMsg.role === 'user' && lastMsg.text === prompt;
+
+  let fullPrompt = '';
+  if (validMessages.length > 0) {
+    fullPrompt = validMessages.map(m =>
+      `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`
+    ).join('\n\n');
+  }
+
+  // Only add prompt if not already in history
+  if (prompt && prompt.trim() && !promptAlreadyAdded) {
+    fullPrompt = fullPrompt ? `${fullPrompt}\n\nUser: ${prompt}` : `User: ${prompt}`;
+  }
+
+  const body = {
+    model: model || 'llama2',
+    prompt: fullPrompt,
+    system: systemPrompt,
+    stream: !!onChunk
+  };
+
+  if (maxTokens) {
+    body.options = { num_predict: maxTokens };
+  }
+
   const response = await fetch(`${baseUrl}/api/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      model: model || 'llama2',
-      prompt: prompt,
-      system: systemPrompt,
-      stream: !!onChunk
-    })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {

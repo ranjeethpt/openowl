@@ -2,6 +2,17 @@
 
 Thank you for your interest in contributing to OpenOwl! This document provides guidelines for contributing to the project.
 
+## Table of Contents
+
+- [Adding a New Site Extractor](#adding-a-new-site-extractor)
+- [Adding a New Template](#adding-a-new-template)
+- [Adding a New Prompt](#adding-a-new-prompt)
+- [Debugging](#debugging)
+- [Manual Testing Checklist](#manual-testing-checklist)
+- [Other Contributions](#other-contributions)
+
+---
+
 ## Adding a New Site Extractor
 
 OpenOwl uses a **Strategy Pattern + Registry** architecture for site-specific content extraction. This makes it easy to add support for new websites.
@@ -92,6 +103,111 @@ See `src/content/extractors/sites/github.js` for a complete reference implementa
 - Issues
 - Code files
 - Repository pages
+
+---
+
+## Adding a New Template
+
+**Templates** are UI buttons in the Ask tab that trigger common workflows. See the complete guide at [src/prompts/templates/README.md](src/prompts/templates/README.md).
+
+### Quick Start
+
+1. **Add prompt to `src/prompts/registry.js` first**:
+
+```javascript
+export const PromptRegistry = {
+  yourPrompt: {
+    version: '1.0.0',
+    description: 'What your prompt does',
+    build: (context) => ({
+      system: `Your LLM instructions here`,
+      maxTokens: 400
+    })
+  }
+};
+```
+
+2. **Add template to `src/prompts/templates.js`**:
+
+```javascript
+export const TEMPLATES = {
+  // ... existing templates
+
+  yourTemplate: {
+    label: '🔍 Your Action',     // Button text with emoji
+    type: 'auto',                // 'auto' = runs immediately, 'prompt' = waits for user input
+    category: 'daily',           // Group: 'daily', 'memory', 'focus'
+    triggers: ['keyword1', 'keyword2'],  // Intent detection keywords
+    gather: async () => {
+      // Collect context data
+      const tabs = await getAllTabs();
+      const todayLog = await getMeaningfulHistory(20);
+
+      return { tabs, todayLog };
+    },
+    prompt: 'yourPrompt'  // Must match key in PromptRegistry!
+  }
+};
+```
+
+3. **Test**:
+   - Reload extension
+   - Open Ask tab
+   - Click your button
+   - Verify response
+
+### Template Types
+
+- **`type: 'auto'`** - Runs immediately when clicked (e.g., "✍️ Write standup")
+- **`type: 'prompt'`** - Prefills input field, waits for user to complete (e.g., "🔍 Remind me of...")
+
+---
+
+## Adding a New Prompt
+
+**Prompts** are LLM system instructions. Not all prompts need templates! See the complete guide at [src/prompts/README.md](src/prompts/README.md).
+
+### Quick Start
+
+1. **Add prompt to `src/prompts/registry.js`**:
+
+```javascript
+export const PromptRegistry = {
+  // ... existing prompts
+
+  yourPrompt: {
+    version: '1.0.0',
+    description: 'Brief description of what this prompt does',
+    build: (context) => {
+      const { requiredField, optionalField = 'default' } = context;
+
+      return {
+        system: `You are a helpful assistant. ${requiredField}. ${optionalField}.`,
+        user: 'Optional: prefill user message',  // Usually omitted
+        maxTokens: 400  // Suggested token limit
+      };
+    }
+  }
+};
+```
+
+2. **(Optional) Add template** if this should be a user-facing button (see previous section)
+
+3. **Test**:
+   - Run `npm run build`
+   - Check for errors
+   - Test in Ask tab
+
+### Prompts vs Templates
+
+Not all prompts need templates!
+
+| Scenario | Needs Template? | Example |
+|----------|----------------|---------|
+| User-facing button in Ask tab | ✅ Yes | "✍️ Write standup" |
+| Background process | ❌ No | Today tab insights |
+| General query handler | ❌ No | `ask` prompt |
+| Future feature | ❌ No | Not yet in UI |
 
 ---
 
@@ -190,6 +306,20 @@ Before submitting a PR, verify the following manually:
 - [ ] Check console for `[Registry]` logs showing correct extractor used
 - [ ] Test at least 3 different page types on that site
 - [ ] No console errors thrown by the extractor
+
+**New template:**
+- [ ] Template button appears in Ask tab
+- [ ] Clicking button triggers correct action (auto runs immediately, prompt prefills)
+- [ ] Response is relevant and uses gathered context
+- [ ] Intent detection works for at least 2 trigger phrases
+- [ ] No console errors during execution
+- [ ] Check console for `[ASK_AI] Template matched: yourTemplate` log
+
+**New prompt:**
+- [ ] Build succeeds: `npm run build`
+- [ ] No "Unknown prompt" errors in console
+- [ ] LLM response follows system instructions
+- [ ] Test with at least one LLM provider (Claude, OpenAI, or Gemini)
 
 **New feature or bug fix:**
 - [ ] No console errors
