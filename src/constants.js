@@ -27,6 +27,6 @@ export const DEFAULT_PREFERENCES = {
     start: '08:00',
     end: '19:00'
   },
-  minActiveTimeMs: 5000, // 5 seconds - catch quick reference visits
+  minActiveTimeMs: 3000, // 5 seconds - catch quick reference visits
   logRetentionDays: 90 // 90 days for better historical context
 };

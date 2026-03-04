@@ -24,6 +24,11 @@ import { GmailExtractor } from './sites/gmail.js';
 import { CalendarExtractor } from './sites/calendar.js';
 import { NotionExtractor } from './sites/notion.js';
 import { LinearExtractor } from './sites/linear.js';
+import { ClaudeExtractor } from './sites/claude.js';
+import { ChatGPTExtractor } from './sites/chatgpt.js';
+import { GeminiExtractor } from './sites/gemini.js';
+import { PerplexityExtractor } from './sites/perplexity.js';
+import { CopilotExtractor } from './sites/copilot.js';
 
 /**
  * EXTRACTORS - Master list of all site extractors
@@ -36,6 +41,11 @@ const EXTRACTORS = [
   new CalendarExtractor(),
   new NotionExtractor(),
   new LinearExtractor(),
+  new ClaudeExtractor(),
+  new ChatGPTExtractor(),
+  new GeminiExtractor(),
+  new PerplexityExtractor(),
+  new CopilotExtractor(),
 ];
 
 /**
