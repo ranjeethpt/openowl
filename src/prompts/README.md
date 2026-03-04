@@ -13,32 +13,101 @@ All AI instructions are centralized here for:
 - ✅ A/B testing capabilities
 - ✅ Prompt versioning
 
+## Quick Navigation
+
+- **[templates/README.md](./templates/README.md)** - User-facing quick action buttons
+- **[registry.js](./registry.js)** - LLM system prompts
+
+## Architecture: Prompts vs Templates
+
+**Key Concept**: Not all prompts have templates!
+
+- **Prompts** = LLM system instructions (this file)
+- **Templates** = UI buttons in Ask tab that invoke prompts
+
+```
+┌─────────────────────────────────────────────┐
+│          USER INTERFACE (Ask Tab)           │
+│  ┌───────────────────────────────────────┐  │
+│  │ Template Buttons (5 total)            │  │
+│  │ ✍️ Write standup                      │  │
+│  │ 📊 Day summary                        │  │
+│  │ 🎯 What to focus on?                  │  │
+│  │ 🔍 Remind me of...                    │  │
+│  │ 📅 Prep for...                        │  │
+│  └───────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
+                   ↓ references
+┌─────────────────────────────────────────────┐
+│      PROMPT REGISTRY (9 prompts total)      │
+│  ┌───────────────────────────────────────┐  │
+│  │ With Templates:                       │  │
+│  │ • standup                             │  │
+│  │ • summary                             │  │
+│  │ • focus                               │  │
+│  │ • memorySearch                        │  │
+│  │ • meetingPrep                         │  │
+│  │                                       │  │
+│  │ Without Templates (internal use):     │  │
+│  │ • ask          (general queries)      │  │
+│  │ • dayInsight   (Today tab background) │  │
+│  │ • briefing     (future feature)       │  │
+│  │ • continueWork (future feature)       │  │
+│  │ • patternInsight (future feature)     │  │
+│  └───────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
+```
+
+**Example Flow:**
+
+1. User clicks "✍️ Write standup" template button
+2. Template gathers data: `{ todayLog, yesterdayLog, copies }`
+3. Template has `prompt: 'standup'`
+4. `background.js` calls `getPrompt('standup', data)`
+5. Prompt builds system instruction for LLM
+6. LLM generates standup text
+
 ## Structure
 
-Each prompt in `registry.js` has:
+Each prompt in `registry.js` is a simple object:
 
 ```javascript
-promptName: {
-  version: '1.0.0',           // Semantic versioning
-  description: 'What it does', // Human-readable description
-  build: (context) => ({       // Builder function
-    system: 'System prompt...',  // Required: System message
-    user: 'Optional user msg',   // Optional: Pre-filled user message
-    maxTokens: 500              // Suggested token limit
-  })
+export const PromptRegistry = {
+  standup: {
+    version: '1.0.0',           // Semantic versioning
+    description: 'What it does', // Human-readable description
+    build: (context) => ({       // Builder function
+      system: 'System prompt...',  // Required: System message
+      user: 'Optional user msg',   // Optional: Pre-filled user message
+      maxTokens: 500              // Suggested token limit
+    })
+  }
+};
+```
+
+Templates reference prompts by name:
+```javascript
+// templates.js
+standup: {
+  prompt: 'standup',  // Must match key in PromptRegistry
+  gather: async () => ({ ... })
 }
 ```
 
 ## Available Prompts
 
-| Name | Purpose | Context Required |
-|------|---------|------------------|
-| `ask` | General questions about tabs | tabs, tabCount, totalTabs |
-| `standup` | Daily standup generation | todayLog, yesterdayLog? |
-| `summarizeTabs` | Summarize open tabs | tabs |
-| `briefing` | Morning briefing | yesterdayLog, todaySchedule? |
-| `continueWork` | Resume work session | pages, lastSession? |
-| `patternInsight` | Work pattern insights | patterns, weekLog |
+| Name | Purpose | Has Template? | Context Required |
+|------|---------|---------------|------------------|
+| `ask` | General questions about tabs | ❌ | tabs, tabCount, totalTabs, history, copies |
+| `standup` | Daily standup generation | ✅ | todayLog, yesterdayLog, copies, format |
+| `summary` | Summarize day's activity | ✅ | todayLog, todayStats |
+| `focus` | What to work on next | ✅ | tabs, todayLog, copies |
+| `memorySearch` | Find past activity | ✅ | matches, question |
+| `meetingPrep` | Prepare for meeting | ✅ | todayLog, yesterdayLog, tabs, question |
+| `dayInsight` | Today tab insights | ❌ | dayLog, stats |
+| `briefing` | Morning briefing | ❌ | yesterdayLog, todaySchedule |
+| `continueWork` | Resume work session | ❌ | pages, lastSession |
+| `patternInsight` | Work pattern insights | ❌ | patterns, weekLog |
 
 ## Usage
 
@@ -47,17 +116,20 @@ promptName: {
 ```javascript
 import { getPrompt } from '../prompts/registry.js';
 
-// Get a built prompt
+// Get a built prompt by name
 const { system, maxTokens } = getPrompt('ask', {
   tabs: [...],
   tabCount: 5,
-  totalTabs: 12
+  totalTabs: 12,
+  history: [...],
+  copies: [...]
 });
 
 // Use with LLM
 await callLLM({
   systemPrompt: system,
   prompt: userQuestion,
+  maxTokens,
   // ...
 });
 ```
@@ -77,28 +149,47 @@ const result = await callWithPrompt(
 
 ## Adding a New Prompt
 
-1. **Add entry to `registry.js`**:
-```javascript
-myPrompt: {
-  version: '1.0.0',
-  description: 'What this prompt does',
-  build: (context) => {
-    const { requiredField, optionalField = 'default' } = context;
+### Step 1: Add entry to `registry.js`
 
-    return {
-      system: `Your prompt template using ${requiredField}`,
-      maxTokens: 400
-    };
+```javascript
+export const PromptRegistry = {
+  // ... existing prompts
+
+  myPrompt: {
+    version: '1.0.0',
+    description: 'What this prompt does',
+    build: (context) => {
+      const { requiredField, optionalField = 'default' } = context;
+
+      return {
+        system: `Your prompt template using ${requiredField}`,
+        user: 'Optional prefill message',
+        maxTokens: 400
+      };
+    }
   }
-}
+};
 ```
 
-2. **Use it**:
+### Step 2: (Optional) Add template if user-facing
+
+If this prompt should have a button in the Ask tab:
+
 ```javascript
-const prompt = getPrompt('myPrompt', { requiredField: 'value' });
+// templates.js
+export const TEMPLATES = {
+  myFeature: {
+    label: '🔍 My Feature',
+    type: 'auto',
+    prompt: 'myPrompt',  // Must match key in PromptRegistry
+    gather: async () => ({ requiredField: 'value' })
+  }
+};
 ```
 
-3. **Submit PR** with:
+See [templates/README.md](./templates/README.md#adding-a-new-template) for details.
+
+### Step 3: Submit PR with:
    - Clear description of use case
    - Example input/output
    - Version bumped if editing existing

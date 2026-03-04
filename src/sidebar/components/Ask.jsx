@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { TEMPLATES } from '../../prompts/templates.js';
 
 /**
- * Ask component - AI chat with browser context awareness
+ * Ask component - AI chat with browser context awareness + templates
  */
 function Ask({ messages, onMessagesChange }) {
   const [input, setInput] = useState('');
@@ -13,6 +14,7 @@ function Ask({ messages, onMessagesChange }) {
   const [error, setError] = useState(null);
   const [todayStats, setTodayStats] = useState(null);
   const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
   const loadingTimers = useRef([]);
 
   // Auto-run if a new message is added with autoRun flag
@@ -138,23 +140,22 @@ function Ask({ messages, onMessagesChange }) {
 
     // Add user message if not already there (autoRun case adds it first)
     const lastMessage = messages[messages.length - 1];
+    let currentMessages = messages;
     if (!lastMessage || lastMessage.text !== question || lastMessage.role !== 'user') {
-      onMessagesChange(prev => [...prev, { role: 'user', text: question }]);
+      currentMessages = [...messages, { role: 'user', text: question }];
+      onMessagesChange(currentMessages);
     }
 
     setInput('');
     setLoading(true);
     setError(null);
 
-    // Background already reads fresh tabs when ASK_AI is called
-    // No need to pre-load separately
-
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'ASK_AI',
         data: {
-          prompt: question,
-          includeContext: true
+          question,
+          messages: currentMessages // ← multi-turn history
         }
       });
 
@@ -162,7 +163,8 @@ function Ask({ messages, onMessagesChange }) {
         const aiMessage = {
           role: 'assistant',
           text: response.data.text,
-          context: response.data.context
+          context: response.data.context,
+          templateUsed: response.data.templateUsed
         };
         onMessagesChange(prev => [...prev, aiMessage]);
       } else {
@@ -200,8 +202,31 @@ function Ask({ messages, onMessagesChange }) {
   /**
    * Handle quick action button click
    */
-  function handleQuickAction(question) {
-    askAI(question);
+  /**
+   * Handle template click with clearing strategy
+   */
+  function handleTemplateClick(template) {
+    if (template.type === 'auto') {
+      // Clear messages FIRST → fresh context
+      onMessagesChange([]);
+      // Then run template
+      askAI(template.label);
+      return;
+    }
+
+    if (template.type === 'prompt') {
+      // DO NOT clear messages - user might be following up
+      // Prefill input, let user complete
+      setInput(template.prefill);
+      textareaRef.current?.focus();
+      // Move cursor to end
+      setTimeout(() => {
+        if (textareaRef.current) {
+          const len = template.prefill.length;
+          textareaRef.current.setSelectionRange(len, len);
+        }
+      }, 0);
+    }
   }
 
   /**
@@ -253,28 +278,43 @@ function Ask({ messages, onMessagesChange }) {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-        {/* Quick Action Buttons - Only show when no messages */}
+        {/* Template Buttons - Only show when no messages */}
         {messages.length === 0 && (
           <div className="px-4 py-3 border-b border-gray-200">
+            {/* AUTO templates - run immediately */}
+            <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">
+              Quick actions
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {Object.values(TEMPLATES)
+                .filter(t => t.type === 'auto')
+                .map(t => (
+                  <button
+                    key={t.label}
+                    onClick={() => handleTemplateClick(t)}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
+                  >
+                    {t.label}
+                  </button>
+                ))}
+            </div>
+
+            {/* PROMPT templates - prefill input */}
+            <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">
+              Search memory
+            </p>
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => handleQuickAction('Write my daily standup based on everything I worked on today across all my open tabs. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]')}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
-              >
-                ✍️ Write standup
-              </button>
-              <button
-                onClick={() => handleQuickAction('Look at all my open tabs and tell me what problem I\'m trying to solve. What connects them? What am I working on?')}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
-              >
-                🔗 Find connections
-              </button>
-              <button
-                onClick={() => handleQuickAction('Based on my open tabs and what I\'ve worked on today, what should I focus on right now? Be specific and reference what you can see.')}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
-              >
-                🎯 What to focus on?
-              </button>
+              {Object.values(TEMPLATES)
+                .filter(t => t.type === 'prompt')
+                .map(t => (
+                  <button
+                    key={t.label}
+                    onClick={() => handleTemplateClick(t)}
+                    className="px-3 py-1.5 bg-blue-50 hover:bg-owl-blue/10 text-sm text-owl-blue border border-owl-blue/20 rounded transition-colors"
+                  >
+                    {t.label}
+                  </button>
+                ))}
             </div>
           </div>
         )}
@@ -367,6 +407,7 @@ function Ask({ messages, onMessagesChange }) {
       {/* Input Area */}
       <div className="border-t border-gray-200 p-4 flex-shrink-0">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}

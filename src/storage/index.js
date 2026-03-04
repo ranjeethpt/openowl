@@ -196,6 +196,18 @@ export async function getAllHistory(limit = 100) {
 }
 
 /**
+ * Get ALL logs across all dates (for memory search)
+ * Different from getAllHistory() which has a limit
+ * Used by memorySearch to scan full 30 days
+ * @returns {Promise<Array>}
+ */
+export async function getAllLogs() {
+  const db = await initDB();
+  const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+  return tx.store.getAll();
+}
+
+/**
  * Get yesterday's day log entries
  * @returns {Promise<Array>}
  */

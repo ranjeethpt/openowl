@@ -1,17 +1,45 @@
 /**
- * PROMPT REGISTRY
+ * PROMPT REGISTRY - LLM System Instructions
  *
- * All LLM system prompts for OpenOwl live here.
- * This is the single source of truth.
+ * This is the single source of truth for ALL AI prompts in OpenOwl.
+ *
+ * ARCHITECTURE:
+ * Relationship to Templates:
+ *   Templates → UI buttons that reference prompts by name string
+ *   Prompts → LLM instructions (may or may not have templates)
+ *
+ * Example flows:
+ *
+ *   WITH TEMPLATE:
+ *   User clicks "✍️ Write standup" button
+ *     → standup template's gather() runs
+ *     → template.prompt is 'standup' string
+ *     → getPrompt('standup', gatheredData)
+ *     → This registry builds the system prompt
+ *     → LLM called
+ *
+ *   WITHOUT TEMPLATE:
+ *   Today tab loads
+ *     → Component calls getPrompt('dayInsight', { dayLog, stats })
+ *     → This registry builds the system prompt
+ *     → LLM called
+ *
+ * IMPORTANT:
+ * - Templates reference prompts using simple strings: prompt: 'standup'
+ * - Not every prompt has a template (dayInsight, ask, briefing, etc.)
+ * - Templates are only for common user-triggered actions
+ * - Runtime validation ensures prompt names are valid
+ *
+ * See: src/prompts/README.md for architecture details
+ * See: src/prompts/templates/README.md for template guide
  *
  * To add a new prompt:
- * 1. Add entry to PromptRegistry object
- * 2. Define version, description, build()
- * 3. build() receives context, returns { system, user?, maxTokens }
- * 4. Use getPrompt('yourname', context) anywhere in codebase
+ * 1. Add entry here: myFeature: { version, description, build() }
+ * 2. build() receives context, returns { system, user?, maxTokens }
+ * 3. (Optional) Add template in templates.js with prompt: 'myFeature'
  *
  * To edit a prompt:
- * 1. Find it by name below
+ * 1. Find it by name in this file
  * 2. Edit the template string
  * 3. Bump version number
  * 4. Submit PR with before/after examples
@@ -486,22 +514,146 @@ Write ONLY one punchy sentence. No fluff.`;
         maxTokens: 100
       };
     }
+  },
+
+  /**
+   * Memory search - find something from work history
+   */
+  memorySearch: {
+    version: '1.0.0',
+    description: 'Find something from work history',
+    build: ({ matches, question }) => ({
+      system: `You are helping a developer find something from their work history.
+
+They said: "${question}"
+
+MATCHING ENTRIES FOUND
+(scored by relevance, most relevant first):
+${matches.length > 0
+  ? matches.map(e => `
+- ${e.title}
+  URL: ${e.url}
+  Date: ${new Date(Number(e.visitedAt)).toLocaleDateString('en-AU', {
+    weekday: 'short', day: 'numeric',
+    month: 'short', hour: '2-digit',
+    minute: '2-digit'
+  })}
+  Active: ${Math.round((e.activeTime||0)/60000)}m
+  Visits: ${e.visitCount || 1}
+  ${e.copied?.length > 0 ? `Copied: "${e.copied[0]}"` : ''}
+`).join('\n')
+  : 'No matching entries found in work history.'}
+
+Rules:
+- Be specific about dates and times
+- Always include the URL so they can go back
+- If they copied from it, mention what they copied
+- If nothing matches well, say so honestly and suggest what to search instead
+- Keep under 150 words
+- Offer to search differently if not found`,
+      user: question,
+      maxTokens: 300
+    })
+  },
+
+  /**
+   * Focus - what to work on next
+   */
+  focus: {
+    version: '1.0.0',
+    description: 'Suggest what to focus on next',
+    build: ({ tabs, todayLog, copies }) => {
+      const tabList = tabs.slice(0, 10).map(t => `- ${t.title}`).join('\n') || 'No tabs open';
+      const recentWork = todayLog.slice(0, 10).map(e =>
+        `- ${e.domain}: ${e.title} (${Math.round((e.activeTime||0)/60000)}m)`
+      ).join('\n') || 'No activity today';
+      const copiedItems = copies.slice(0, 5).map(e =>
+        `- ${e.copied[0].substring(0, 100)}`
+      ).join('\n') || 'Nothing copied';
+
+      return {
+        system: `You are helping a developer decide what to focus on next.
+
+OPEN TABS:
+${tabList}
+
+TODAY'S WORK:
+${recentWork}
+
+RECENTLY COPIED:
+${copiedItems}
+
+Rules:
+- Look for unfinished work (tabs left open)
+- Identify blocked work (stuck on one thing too long)
+- Suggest next logical step
+- Be specific and actionable
+- One clear recommendation
+- Keep under 100 words`,
+        user: 'What should I focus on next?',
+        maxTokens: 200
+      };
+    }
+  },
+
+  /**
+   * Meeting prep - prepare context for upcoming meeting
+   */
+  meetingPrep: {
+    version: '1.0.0',
+    description: 'Prep context for an upcoming meeting',
+    build: ({ todayLog, yesterdayLog, tabs, question }) => ({
+      system: `You are helping a developer prepare for a meeting.
+
+They asked: "${question}"
+
+TODAY'S WORK:
+${todayLog.map(e =>
+  `- ${e.domain}: ${e.title}
+   Active: ${Math.round((e.activeTime||0)/60000)}m`
+).join('\n') || 'No activity today'}
+
+YESTERDAY:
+${yesterdayLog.slice(0, 10).map(e =>
+  `- ${e.domain}: ${e.title}`
+).join('\n') || 'No data'}
+
+OPEN TABS:
+${tabs.map(t => `- ${t.title}`).join('\n') || 'No tabs'}
+
+Rules:
+- Find context relevant to the meeting topic
+- Surface recent work on related items
+- Mention any open PRs or tickets related
+- Suggest 2-3 talking points
+- Keep under 150 words`,
+      user: question,
+      maxTokens: 300
+    })
   }
 };
 
 /**
  * Get a prompt by name and build it with context
- * @param {string} name - Prompt name (ask, standup, etc)
+ * @param {string} name - Prompt name (ask, standup, summary, etc)
  * @param {Object} context - Context for building the prompt
  * @returns {PromptResult}
  * @throws {Error} If prompt name not found
+ *
+ * @example
+ * const prompt = getPrompt('standup', { todayLog, yesterdayLog });
  */
 export function getPrompt(name, context = {}) {
   const prompt = PromptRegistry[name];
 
   if (!prompt) {
     const available = Object.keys(PromptRegistry).join(', ');
-    throw new Error(`Unknown prompt: ${name}. Available: ${available}`);
+    const closestMatch = findClosestMatch(name, Object.keys(PromptRegistry));
+    throw new Error(
+      `Unknown prompt: "${name}". ` +
+      `Available prompts: ${available}.` +
+      (closestMatch ? ` Did you mean "${closestMatch}"?` : '')
+    );
   }
 
   // Validate context (warnings only, never throws)
@@ -509,6 +661,60 @@ export function getPrompt(name, context = {}) {
 
   // Build and return the prompt
   return prompt.build(context);
+}
+
+/**
+ * Find closest matching string (simple Levenshtein-like)
+ * @private
+ */
+function findClosestMatch(input, options) {
+  let closest = null;
+  let minDistance = Infinity;
+
+  for (const option of options) {
+    const distance = levenshteinDistance(input.toLowerCase(), option.toLowerCase());
+    if (distance < minDistance && distance <= 3) {
+      minDistance = distance;
+      closest = option;
+    }
+  }
+
+  return closest;
+}
+
+/**
+ * Simple Levenshtein distance for typo detection
+ * @private
+ */
+function levenshteinDistance(a, b) {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const matrix = [];
+
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[b.length][a.length];
 }
 
 /**
@@ -529,16 +735,20 @@ export function listPrompts() {
  * @param {Object} context - Context to validate
  */
 export function validateContext(name, context) {
-  // Define expected context fields for each prompt
+  // Define expected context fields for each prompt (using PROMPT_KEYS values)
   const expectedFields = {
     ask: ['tabs', 'tabCount', 'totalTabs', 'history', 'copies'],
     standup: ['todayLog', 'yesterdayLog', 'copies', 'format'],
-    summarizeTabs: ['tabs'],
     summary: ['todayLog', 'todayStats'],
     briefing: ['yesterdayLog'],
     continueWork: ['pages'],
     patternInsight: ['patterns', 'weekLog'],
-    dayInsight: ['dayLog', 'stats']
+    dayInsight: ['dayLog', 'stats'],
+    focus: ['tabs', 'todayLog', 'copies'],
+    memorySearch: ['matches', 'question'],
+    meetingPrep: ['todayLog', 'yesterdayLog', 'tabs', 'question'],
+    // summarizeTabs is deprecated/unused
+    summarizeTabs: ['tabs']
   };
 
   const expected = expectedFields[name];
