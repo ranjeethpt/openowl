@@ -27,6 +27,9 @@ export const DEFAULT_PREFERENCES = {
     start: '08:00',
     end: '19:00'
   },
-  minActiveTimeMs: 3000, // 5 seconds - catch quick reference visits
-  logRetentionDays: 90 // 90 days for better historical context
+  minActiveTimeMs: 3000, // 3 seconds - catch quick reference visits
+  logRetentionDays: 90, // 90 days for better historical context
+  duplicateVisitWindowMs: 5 * 60 * 1000, // 5 minutes - prevent duplicate entries
+  insightCacheTtlMs: 12 * 60 * 60 * 1000, // 12 hours - cache TTL for LLM insights
+  defaultHistoryImportDays: 30 // Default lookback period for history import
 };
