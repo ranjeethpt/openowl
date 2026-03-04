@@ -427,6 +427,152 @@ export async function getMeaningfulHistory(limit = 20) {
 }
 
 /**
+ * Get last activity log (most recent day with real activity)
+ * Excludes today, history_import, and accidental opens
+ * Falls back to history_import if no real activity exists
+ * @returns {Promise<Array>} Entries from last active day, or empty array
+ */
+export async function getLastActivityLog() {
+  const db = await initDB();
+  const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+  const index = tx.store.index('date');
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Get all entries, sorted by date descending
+  const allEntries = await tx.store.getAll();
+
+  console.log('[getLastActivityLog] Total entries:', allEntries.length);
+  console.log('[getLastActivityLog] Today:', today);
+
+  // Group by date
+  const byDate = {};
+  allEntries.forEach(entry => {
+    if (!byDate[entry.date]) {
+      byDate[entry.date] = [];
+    }
+    byDate[entry.date].push(entry);
+  });
+
+  // Get dates sorted descending (most recent first)
+  const dates = Object.keys(byDate).sort().reverse();
+  console.log('[getLastActivityLog] All dates:', dates);
+
+  // Find most recent date (excluding today) that has real activity
+  for (const date of dates) {
+    if (date === today) continue; // Skip today
+
+    const entries = byDate[date];
+
+    // Check if this date has real activity
+    // Real activity = NOT history_import AND (activeTime > 0 OR visitCount > 1)
+    const hasRealActivity = entries.some(e =>
+      e.source !== 'history_import' &&
+      (e.activeTime > 0 || e.visitCount > 1)
+    );
+
+    console.log(`[getLastActivityLog] Date ${date}: ${entries.length} entries, hasRealActivity=${hasRealActivity}`);
+
+    if (hasRealActivity) {
+      console.log('[getLastActivityLog] Returning real activity from:', date);
+      return entries;
+    }
+  }
+
+  // No real activity found - fall back to history_import
+  for (const date of dates) {
+    if (date === today) continue;
+
+    const entries = byDate[date];
+    const hasHistoryImport = entries.some(e => e.source === 'history_import');
+
+    if (hasHistoryImport) {
+      console.log('[getLastActivityLog] Falling back to history_import from:', date);
+      return entries;
+    }
+  }
+
+  // Nothing at all
+  console.log('[getLastActivityLog] No entries found at all');
+  return [];
+}
+
+/**
+ * Get last activity date (most recent day with real activity)
+ * @returns {Promise<string|null>} Date string (YYYY-MM-DD) or null
+ */
+export async function getLastActivityDate() {
+  const entries = await getLastActivityLog();
+
+  if (entries.length === 0) return null;
+
+  return entries[0].date;
+}
+
+/**
+ * Get week log (Monday to today, or last 7 days if nothing this week)
+ * @returns {Promise<Array>} Entries from current week
+ */
+export async function getWeekLog() {
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // Calculate Monday of current week
+  const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - daysFromMonday);
+  const mondayStr = monday.toISOString().split('T')[0];
+
+  // Get entries from Monday to today
+  const entries = await getLogRange(mondayStr, todayStr);
+
+  // If nothing found this week, fall back to last 7 days
+  if (entries.length === 0) {
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 7);
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+
+    return getLogRange(sevenDaysAgoStr, todayStr);
+  }
+
+  return entries;
+}
+
+/**
+ * Get history import stats (derived from database)
+ * @returns {Promise<Object|null>} { entriesImported, oldestDate, newestDate, daysSpan } or null if no import
+ */
+export async function getHistoryImportStats() {
+  const db = await initDB();
+  const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+  const allEntries = await tx.store.getAll();
+
+  const historyEntries = allEntries.filter(e => e.source === 'history_import');
+
+  if (historyEntries.length === 0) {
+    return null;
+  }
+
+  // Get date range
+  const dates = historyEntries.map(e => e.date).sort();
+  const oldestDate = dates[0];
+  const newestDate = dates[dates.length - 1];
+
+  // Calculate days span
+  const oldestTime = new Date(oldestDate).getTime();
+  const newestTime = new Date(newestDate).getTime();
+  const daysSpan = Math.ceil((newestTime - oldestTime) / (1000 * 60 * 60 * 24));
+
+  return {
+    entriesImported: historyEntries.length,
+    oldestDate,
+    newestDate,
+    daysSpan: daysSpan + 1 // +1 to include both start and end days
+  };
+}
+
+/**
  * Get all copied snippets from today
  * @returns {Promise<Array>} Array of {snippet, domain, url, visitedAt}
  */

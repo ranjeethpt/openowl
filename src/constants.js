@@ -23,10 +23,10 @@ export const DEFAULT_PREFERENCES = {
     'etsy.com'
   ],
   workHours: {
-    enabled: true,
+    enabled: false, // Track all day by default for better standup data
     start: '08:00',
     end: '19:00'
   },
-  minActiveTimeMs: 10000,
-  logRetentionDays: 30
+  minActiveTimeMs: 5000, // 5 seconds - catch quick reference visits
+  logRetentionDays: 90 // 90 days for better historical context
 };

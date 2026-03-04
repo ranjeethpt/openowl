@@ -858,17 +858,16 @@ async function importChromeHistory(daysBack = 30) {
   console.log(`[History Import] Filtered to ${filtered.length} items`);
 
   // Convert to day log entries
-  const todayDate = new Date().toISOString().split('T')[0];
   const entries = filtered.map(item => {
     const url = new URL(item.url);
+    const actualDate = new Date(item.lastVisitTime).toISOString().split('T')[0];
     return {
       url: item.url,
       title: item.title || url.hostname,
       domain: url.hostname,
       content: '',
       extractionType: 'history_import',
-      date: todayDate, // Use today's date so it shows in Today tab
-      originalDate: new Date(item.lastVisitTime).toISOString().split('T')[0], // Keep original for timeline
+      date: actualDate, // Use actual visit date for historical context (standup, week wrap)
       visitedAt: item.lastVisitTime,
       leftAt: null,
       activeTime: 0,
@@ -908,16 +907,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       // Import up to 30 days of history
       const result = await importChromeHistory(30);
       console.log(`[OpenOwl] History import finished. Result: ${result.imported} imported, ${result.skipped} skipped.`);
-      
-      await chrome.storage.local.set({
-        historyImported: true,
-        historyImport: {
-          lastImported: new Date().toISOString(),
-          entriesImported: result.imported,
-          daysImported: 30,
-          shown: false  // banner not shown yet
-        }
-      });
+      // No need to store import status - we can derive it from database using getHistoryImportStats()
     } catch (err) {
       console.error('[OpenOwl] History import failed:', err);
       // Fail silently - not critical, but log it
@@ -978,8 +968,9 @@ chrome.tabs.onActivated.addListener(() => {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'cleanOldLogs') {
     try {
-      await storage.cleanupOldEntries(30);
-      console.log('Old logs cleaned successfully');
+      const prefs = await storage.getPreferences();
+      await storage.cleanupOldEntries(prefs.logRetentionDays);
+      console.log(`Old logs cleaned successfully (keeping last ${prefs.logRetentionDays} days)`);
     } catch (error) {
       console.error('Error cleaning old logs:', error);
     }

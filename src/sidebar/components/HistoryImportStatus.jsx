@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
+import { getHistoryImportStats } from '../../storage/index.js';
 
 /**
  * Read-only display of history import status
- * Shows when the import happened and how many entries were imported
+ * Derives status directly from database (source of truth)
  */
 export default function HistoryImportStatus() {
-  const [importData, setImportData] = useState(null);
+  const [importStats, setImportStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -14,10 +15,8 @@ export default function HistoryImportStatus() {
 
   async function loadImportStatus() {
     try {
-      const result = await chrome.storage.local.get('historyImport');
-      if (result.historyImport) {
-        setImportData(result.historyImport);
-      }
+      const stats = await getHistoryImportStats();
+      setImportStats(stats);
     } catch (error) {
       console.error('Error loading history import status:', error);
     } finally {
@@ -27,11 +26,11 @@ export default function HistoryImportStatus() {
 
   if (loading) return null;
 
-  if (!importData) {
+  if (!importStats) {
     return null; // No import has happened yet
   }
 
-  const importDate = new Date(importData.lastImported).toLocaleDateString('en-US', {
+  const importDate = new Date(importStats.newestDate).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
@@ -44,13 +43,10 @@ export default function HistoryImportStatus() {
       </h3>
       <div className="text-xs text-gray-700 space-y-1">
         <p>
-          <span className="font-medium">Status:</span> Imported on {importDate}
+          <span className="font-medium">Status:</span> {importStats.entriesImported} entries imported
         </p>
         <p>
-          <span className="font-medium">Entries:</span> {importData.entriesImported} work-related pages
-        </p>
-        <p>
-          <span className="font-medium">Period:</span> Last {importData.daysImported} days
+          <span className="font-medium">Period:</span> {importStats.oldestDate} to {importStats.newestDate} ({importStats.daysSpan} days)
         </p>
       </div>
       <p className="mt-2 text-xs text-gray-500">
