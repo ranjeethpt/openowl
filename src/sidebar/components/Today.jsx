@@ -343,7 +343,7 @@ export default function Today({ onNavigateToAsk }) {
           <div className="flex items-center gap-2">
             <span className="text-base">📦</span>
             <p className="text-xs text-gray-800 font-medium">
-              Imported {historyImport.entriesImported} items from your last 30 days of work history.
+              Imported {historyImport.entriesImported} items from your recent work history.
             </p>
           </div>
           <button

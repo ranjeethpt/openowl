@@ -818,12 +818,13 @@ function analyzePatterns(entries) {
 /**
  * Import Chrome browsing history from last N days
  * Filters using preferences (Never Track list)
- * @param {number} daysBack - Number of days to import (default 30)
+ * @param {number} daysBack - Number of days to import (uses default from preferences if not specified)
  * @returns {Promise<Object>} { imported, skipped } counts
  */
-async function importChromeHistory(daysBack = 30) {
+async function importChromeHistory(daysBack) {
   const prefs = await storage.getPreferences();
-  const startTime = Date.now() - (daysBack * 24 * 60 * 60 * 1000);
+  const days = daysBack || prefs.defaultHistoryImportDays;
+  const startTime = Date.now() - (days * 24 * 60 * 60 * 1000);
 
   // Get history items
   const items = await chrome.history.search({
@@ -904,8 +905,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     console.log('[OpenOwl] First install detected - importing history...');
     try {
-      // Import up to 30 days of history
-      const result = await importChromeHistory(30);
+      // Import history using default lookback period from preferences
+      const result = await importChromeHistory();
       console.log(`[OpenOwl] History import finished. Result: ${result.imported} imported, ${result.skipped} skipped.`);
       // No need to store import status - we can derive it from database using getHistoryImportStats()
     } catch (err) {

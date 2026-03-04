@@ -111,27 +111,29 @@ export async function getPreferences() {
 
 /**
  * Save a day log entry to IndexedDB
- * Checks for duplicates within 5 minutes window
+ * Checks for duplicates within configured time window
  * @param {Object} entry - DayLog entry object
  * @returns {Promise<number>} entry ID
  */
 export async function saveDayLogEntry(entry) {
   const db = await initDB();
   const date = new Date(entry.visitedAt).toISOString().split('T')[0]; // YYYY-MM-DD
+  const prefs = await getPreferences();
 
-  // Check for duplicate within 5 minutes
-  const fiveMinutesAgo = entry.visitedAt - (5 * 60 * 1000);
+  // Check for duplicate within configured window
+  const windowStart = entry.visitedAt - prefs.duplicateVisitWindowMs;
   const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
   const index = tx.store.index('url');
   const existingEntries = await index.getAll(entry.url);
 
   const isDuplicate = existingEntries.some(existing =>
-    existing.visitedAt > fiveMinutesAgo &&
+    existing.visitedAt > windowStart &&
     existing.visitedAt <= entry.visitedAt
   );
 
   if (isDuplicate) {
-    console.log('[DayLog] Skipping duplicate entry within 5min window:', entry.url);
+    const windowMinutes = prefs.duplicateVisitWindowMs / (60 * 1000);
+    console.log(`[DayLog] Skipping duplicate entry within ${windowMinutes}min window:`, entry.url);
     return null;
   }
 
@@ -632,13 +634,15 @@ export async function getCachedInsight(date) {
 
   if (!cached) return null;
 
-  // Check if cache is still valid (12 hours = 43200000 ms)
+  // Check if cache is still valid
+  const prefs = await getPreferences();
   const generatedAt = new Date(cached.generatedAt).getTime();
   const now = Date.now();
   const age = now - generatedAt;
-  const TTL = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
 
-  if (age > TTL) {
+  if (age > prefs.insightCacheTtlMs) {
+    const ttlHours = prefs.insightCacheTtlMs / (60 * 60 * 1000);
+    console.log(`[Cache] Insight cache expired after ${ttlHours} hours`);
     // Cache expired, clean up
     await chrome.storage.local.remove([`insight_${date}`]);
     return null;
