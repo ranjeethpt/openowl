@@ -663,3 +663,174 @@ export async function clearInsightCache() {
     await chrome.storage.local.remove(insightKeys);
   }
 }
+
+// ============================================
+// Custom Templates Storage
+// ============================================
+
+/**
+ * Get entries for a specific time range
+ * @param {Object} timeRange - Time range configuration { type, n? }
+ * @returns {Promise<Array>} Entries matching the time range
+ */
+export async function getEntriesForRange(timeRange) {
+  try {
+    if (!timeRange || !timeRange.type) {
+      return [];
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let startDate, endDate;
+
+    switch (timeRange.type) {
+      case 'today':
+        startDate = new Date(today);
+        endDate = new Date();
+        break;
+
+      case 'yesterday':
+        startDate = new Date(today);
+        startDate.setDate(startDate.getDate() - 1);
+        endDate = new Date(today);
+        endDate.setMilliseconds(-1);
+        break;
+
+      case 'last_n_days':
+        const n = timeRange.n || 7;
+        startDate = new Date(today);
+        startDate.setDate(startDate.getDate() - n);
+        endDate = new Date();
+        break;
+
+      case 'this_week':
+        // Monday of current week to today
+        const dayOfWeek = today.getDay();
+        const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        startDate = new Date(today);
+        startDate.setDate(today.getDate() - daysFromMonday);
+        endDate = new Date();
+        break;
+
+      case 'last_week':
+        // Monday to Sunday of last week
+        const lastWeekEnd = new Date(today);
+        const daysSinceMonday = today.getDay() === 0 ? 6 : today.getDay() - 1;
+        lastWeekEnd.setDate(today.getDate() - daysSinceMonday - 1); // Last Sunday
+        lastWeekEnd.setHours(23, 59, 59, 999);
+
+        startDate = new Date(lastWeekEnd);
+        startDate.setDate(lastWeekEnd.getDate() - 6); // Last Monday
+        startDate.setHours(0, 0, 0, 0);
+
+        endDate = lastWeekEnd;
+        break;
+
+      default:
+        return [];
+    }
+
+    // Get all entries from IndexedDB
+    const allEntries = await getAllLogs();
+
+    // Filter by date range
+    const filtered = allEntries.filter(entry => {
+      const entryDate = new Date(entry.visitedAt);
+      return entryDate >= startDate && entryDate <= endDate;
+    });
+
+    return filtered;
+  } catch (error) {
+    console.error('[getEntriesForRange] Error:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all custom templates from storage
+ * @returns {Promise<Array>} Array of custom templates
+ */
+export async function getCustomTemplates() {
+  try {
+    const result = await chrome.storage.local.get('customTemplates');
+    return result.customTemplates || [];
+  } catch (error) {
+    console.error('[getCustomTemplates] Error:', error);
+    return [];
+  }
+}
+
+/**
+ * Save a custom template (create or update)
+ * @param {Object} template - Template object
+ * @returns {Promise<Object|null>} Saved template or null on failure
+ */
+export async function saveCustomTemplate(template) {
+  try {
+    // Generate ID if new template
+    if (!template.id) {
+      template.id = crypto.randomUUID();
+      template.createdAt = Date.now();
+    }
+
+    // Get existing templates
+    const existing = await getCustomTemplates();
+
+    // Check if updating existing
+    const index = existing.findIndex(t => t.id === template.id);
+
+    if (index >= 0) {
+      // Update existing
+      existing[index] = template;
+    } else {
+      // Add new
+      existing.push(template);
+    }
+
+    // Save back to storage
+    await chrome.storage.local.set({ customTemplates: existing });
+
+    return template;
+  } catch (error) {
+    console.error('[saveCustomTemplate] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Delete a custom template by ID
+ * @param {string} id - Template ID
+ * @returns {Promise<void>}
+ */
+export async function deleteCustomTemplate(id) {
+  try {
+    const existing = await getCustomTemplates();
+    const filtered = existing.filter(t => t.id !== id);
+    await chrome.storage.local.set({ customTemplates: filtered });
+  } catch (error) {
+    console.error('[deleteCustomTemplate] Error:', error);
+    // Silently fail - no-op
+  }
+}
+
+/**
+ * Update a custom template by ID
+ * @param {string} id - Template ID
+ * @param {Object} changes - Fields to update
+ * @returns {Promise<void>}
+ */
+export async function updateCustomTemplate(id, changes) {
+  try {
+    const existing = await getCustomTemplates();
+    const index = existing.findIndex(t => t.id === id);
+
+    if (index >= 0) {
+      existing[index] = { ...existing[index], ...changes };
+      await chrome.storage.local.set({ customTemplates: existing });
+    }
+    // No-op if not found
+  } catch (error) {
+    console.error('[updateCustomTemplate] Error:', error);
+    // Silently fail - no-op
+  }
+}

@@ -20,33 +20,44 @@ All AI instructions are centralized here for:
 
 ## Architecture: Prompts vs Templates
 
-**Key Concept**: Not all prompts have templates!
+**Key Concept**: Not all prompts have templates, and templates can be built-in OR custom!
 
 - **Prompts** = LLM system instructions (this file)
 - **Templates** = UI buttons in Ask tab that invoke prompts
+- **Custom Templates** = User-created templates (no code required!)
 
 ```
 ┌─────────────────────────────────────────────┐
 │          USER INTERFACE (Ask Tab)           │
 │  ┌───────────────────────────────────────┐  │
-│  │ Template Buttons (5 total)            │  │
+│  │ Built-in Template Buttons (6 total)   │  │
 │  │ ✍️ Write standup                      │  │
 │  │ 📊 Day summary                        │  │
 │  │ 🎯 What to focus on?                  │  │
 │  │ 🔍 Remind me of...                    │  │
 │  │ 📅 Prep for...                        │  │
+│  │ 📅 Week wrap                          │  │
+│  │                                       │  │
+│  │ Custom Template Buttons (∞ possible)  │  │
+│  │ 🚀 GitHub PRs this week               │  │
+│  │ 📋 JIRA tickets today                 │  │
+│  │ ... user-created templates ...        │  │
 │  └───────────────────────────────────────┘  │
 └─────────────────────────────────────────────┘
                    ↓ references
 ┌─────────────────────────────────────────────┐
-│      PROMPT REGISTRY (9 prompts total)      │
+│      PROMPT REGISTRY (10 prompts total)     │
 │  ┌───────────────────────────────────────┐  │
-│  │ With Templates:                       │  │
+│  │ With Built-in Templates:              │  │
 │  │ • standup                             │  │
 │  │ • summary                             │  │
 │  │ • focus                               │  │
 │  │ • memorySearch                        │  │
 │  │ • meetingPrep                         │  │
+│  │ • weekSummary                         │  │
+│  │                                       │  │
+│  │ Generic (used by custom templates):   │  │
+│  │ • customTemplate                      │  │
 │  │                                       │  │
 │  │ Without Templates (internal use):     │  │
 │  │ • ask          (general queries)      │  │
@@ -99,11 +110,13 @@ standup: {
 | Name | Purpose | Has Template? | Context Required |
 |------|---------|---------------|------------------|
 | `ask` | General questions about tabs | ❌ | tabs, tabCount, totalTabs, history, copies |
-| `standup` | Daily standup generation | ✅ | todayLog, yesterdayLog, copies, format |
-| `summary` | Summarize day's activity | ✅ | todayLog, todayStats |
-| `focus` | What to work on next | ✅ | tabs, todayLog, copies |
-| `memorySearch` | Find past activity | ✅ | matches, question |
-| `meetingPrep` | Prepare for meeting | ✅ | todayLog, yesterdayLog, tabs, question |
+| `standup` | Daily standup generation | ✅ Built-in | todayLog, yesterdayLog, copies, format |
+| `summary` | Summarize day's activity | ✅ Built-in | todayLog, todayStats |
+| `focus` | What to work on next | ✅ Built-in | tabs, todayLog, copies |
+| `memorySearch` | Find past activity | ✅ Built-in | matches, question |
+| `meetingPrep` | Prepare for meeting | ✅ Built-in | todayLog, yesterdayLog, tabs, question |
+| `weekSummary` | Weekly wrap-up | ✅ Built-in | weekLog, hasActivity, isHistoryOnly |
+| `customTemplate` | User-created templates | ✅ Custom (∞) | entries, tabs, config |
 | `dayInsight` | Today tab insights | ❌ | dayLog, stats |
 | `briefing` | Morning briefing | ❌ | yesterdayLog, todaySchedule |
 | `continueWork` | Resume work session | ❌ | pages, lastSession |

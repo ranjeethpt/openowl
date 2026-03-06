@@ -3,6 +3,8 @@
  * Supports Claude (Anthropic), OpenAI, Google Gemini, and local Ollama
  */
 
+import { PROVIDERS, PROVIDER_NAMES } from '../constants.js';
+
 /**
  * Call LLM with streaming support and multi-turn conversations
  * @param {Object} config - { provider, apiKey, model, prompt, systemPrompt, messages, maxTokens, ollamaUrl }
@@ -13,16 +15,16 @@ export async function callLLM(config, onChunk = null) {
   const { provider, apiKey, model, prompt, systemPrompt, messages = [], maxTokens, ollamaUrl } = config;
 
   switch (provider) {
-    case 'claude':
+    case PROVIDERS.CLAUDE:
       return callClaude({ apiKey, model, prompt, systemPrompt, messages, maxTokens }, onChunk);
-    case 'openai':
+    case PROVIDERS.OPENAI:
       return callOpenAI({ apiKey, model, prompt, systemPrompt, messages, maxTokens }, onChunk);
-    case 'gemini':
+    case PROVIDERS.GEMINI:
       return callGemini({ apiKey, model, prompt, systemPrompt, messages, maxTokens }, onChunk);
-    case 'ollama':
+    case PROVIDERS.OLLAMA:
       return callOllama({ model, prompt, systemPrompt, messages, maxTokens, ollamaUrl }, onChunk);
     default:
-      throw new Error(`Unsupported provider: ${provider}`);
+      throw new Error(`Unsupported provider: ${PROVIDER_NAMES[provider] || provider}`);
   }
 }
 

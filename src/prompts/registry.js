@@ -675,6 +675,117 @@ Rules:
   },
 
   /**
+   * Custom template - user-defined data gathering and analysis
+   */
+  customTemplate: {
+    version: '1.0.0',
+    description: 'User-created custom template with configurable filters and instructions',
+
+    /**
+     * @param {Object} context
+     * @param {Array} context.entries - Filtered activity entries
+     * @param {Array} context.tabs - Open tabs (if includeTabs is true)
+     * @param {Object} context.config - Template configuration
+     * @returns {PromptResult}
+     */
+    build: (context) => {
+      const { entries = [], tabs = [], config = {} } = context;
+
+      // Format time range description
+      let periodDescription = '';
+      if (config.filters?.timeRange) {
+        const tr = config.filters.timeRange;
+        switch (tr.type) {
+          case 'today':
+            periodDescription = 'Today';
+            break;
+          case 'yesterday':
+            periodDescription = 'Yesterday';
+            break;
+          case 'last_n_days':
+            periodDescription = `Last ${tr.n || 7} days`;
+            break;
+          case 'this_week':
+            periodDescription = 'This week (Monday to today)';
+            break;
+          case 'last_week':
+            periodDescription = 'Last week (Monday to Sunday)';
+            break;
+          default:
+            periodDescription = 'Selected period';
+        }
+      }
+
+      // Format domain filter note
+      const domainNote = config.filters?.domains?.length > 0
+        ? `\nFiltered to domains: ${config.filters.domains.join(', ')}`
+        : '';
+
+      // Format entries
+      const entriesText = entries.map(e => {
+        const activeMinutes = Math.round((e.activeTime || 0) / 60000);
+        const contentPreview = e.content
+          ? e.content.substring(0, 150).replace(/\n/g, ' ')
+          : '';
+        const copiedNote = e.copied && e.copied.length > 0
+          ? `\n   Copied: "${e.copied[0].substring(0, 100)}"`
+          : '';
+        const sourceNote = e.source === 'history_import'
+          ? ' (from browser history - no content available)'
+          : '';
+
+        return `- ${e.domain || 'unknown'}: ${e.title}
+   Date: ${new Date(e.visitedAt).toLocaleString()}
+   Active: ${activeMinutes}m | Visits: ${e.visitCount || 1}${sourceNote}
+   ${contentPreview}${copiedNote}`;
+      }).join('\n\n');
+
+      // Default instructions if user didn't provide any
+      const userInstructions = config.userInstructions && config.userInstructions.trim()
+        ? config.userInstructions
+        : 'Provide a general activity summary, grouped by domain or topic.';
+
+      // Format output based on config
+      let outputFormatInstruction = '';
+      switch (config.outputFormat) {
+        case 'prose':
+          outputFormatInstruction = 'Write in prose paragraphs, conversational tone.';
+          break;
+        case 'slack':
+          outputFormatInstruction = 'Format for Slack: use *bold* for headings, keep it compact.';
+          break;
+        case 'bullets':
+        default:
+          outputFormatInstruction = 'Use bullet points, organized by topic or domain.';
+      }
+
+      const system = `You are OpenOwl, AI assistant built into the developer's Chrome browser.
+
+DATA BLOCK: ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}
+Period: ${periodDescription}${domainNote}
+
+${entriesText}
+
+${config.userInstructions && config.userInstructions.trim() ? `ADDITIONAL INSTRUCTIONS FROM USER:
+${userInstructions}` : ''}
+
+${outputFormatInstruction}
+
+Rules:
+- Only use the data provided above
+- Never invent activity that wasn't recorded
+- Note: Entries marked "from browser history" have no content - infer from title and URL
+- If asked about something not in the data, say so honestly
+- Keep response under 300 words`;
+
+      return {
+        system,
+        maxTokens: 500
+      };
+    }
+  },
+
+  /**
    * Weekly summary - wrap up the week's work
    */
   weekSummary: {
@@ -908,6 +1019,7 @@ export function validateContext(name, context) {
     memorySearch: ['matches', 'question'],
     meetingPrep: ['todayLog', 'yesterdayLog', 'tabs', 'question'],
     weekSummary: ['weekLog', 'hasActivity', 'isHistoryOnly'],
+    customTemplate: ['entries', 'tabs', 'config'],
     // summarizeTabs is deprecated/unused
     summarizeTabs: ['tabs']
   };

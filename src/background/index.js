@@ -414,7 +414,7 @@ async function handleAskAI(data, sendResponse) {
     const settings = await storage.getSettings();
 
     // Step 1: Check for template match
-    const detected = detectTemplate(question);
+    const detected = await detectTemplate(question);
 
     if (detected) {
       const { key, template } = detected;
@@ -423,8 +423,27 @@ async function handleAskAI(data, sendResponse) {
       // Gather exactly what this template needs
       const templateData = await template.gather(question);
 
+      // Check if custom template returned isEmpty
+      if (template.isCustom && templateData.isEmpty) {
+        console.log(`[ASK_AI] Custom template returned isEmpty: ${templateData.emptyReason}`);
+        sendResponse({
+          success: true,
+          data: {
+            text: templateData.emptyMessage,
+            templateUsed: key,
+            context: { isEmpty: true }
+          }
+        });
+        return;
+      }
+
+      // For custom templates, pass the full template config via promptConfig
+      const promptContext = template.isCustom
+        ? { ...templateData, config: template.promptConfig }
+        : templateData;
+
       // Purpose-built prompt from registry
-      const builtPrompt = getPrompt(template.prompt, templateData);
+      const builtPrompt = getPrompt(template.prompt, promptContext);
       const { system, user, maxTokens } = builtPrompt;
 
       // Use the user message from prompt, or fall back to the question
