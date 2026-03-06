@@ -108,9 +108,33 @@ See `src/content/extractors/sites/github.js` for a complete reference implementa
 
 ## Adding a New Template
 
-**Templates** are UI buttons in the Ask tab that trigger common workflows. See the complete guide at [src/prompts/templates/README.md](src/prompts/templates/README.md).
+**Templates** are UI buttons in the Ask tab that trigger common workflows.
 
-### Quick Start
+### Two Ways to Add Templates
+
+**Option 1: Visual Builder (No Code)** ⭐ Recommended for most use cases
+- Use Settings → 📋 Custom Templates
+- Perfect for domain-specific queries, time-based reports
+- No coding required!
+
+**Option 2: Built-in Template (Code)** - For specialized prompts
+- Requires custom LLM prompt
+- Best for complex logic or new categories
+- See guide below
+
+### When to Add a Built-in Template vs Custom Template
+
+| Use Case | Template Type | Why |
+|----------|--------------|-----|
+| "Show me GitHub activity this week" | Custom | Simple filter, generic prompt |
+| "JIRA tickets I worked on" | Custom | Domain + time filter |
+| "Research summary from Stack Overflow" | Custom | Domain + time + instructions |
+| "Write standup with special format" | Built-in | Needs specialized prompt |
+| "Pattern analysis across repos" | Built-in | Complex logic, multi-step |
+
+### Adding a Built-in Template
+
+**Important:** All templates now use the unified `buildCustomGatherer()` function! This keeps code DRY and consistent.
 
 1. **Add prompt to `src/prompts/registry.js` first**:
 
@@ -119,17 +143,24 @@ export const PromptRegistry = {
   yourPrompt: {
     version: '1.0.0',
     description: 'What your prompt does',
-    build: (context) => ({
-      system: `Your LLM instructions here`,
-      maxTokens: 400
-    })
+    build: (context) => {
+      const { entries, tabs, config } = context;
+
+      // Build specialized prompt using context
+      return {
+        system: `Your custom LLM instructions here using ${entries.length} entries`,
+        maxTokens: 400
+      };
+    }
   }
 };
 ```
 
-2. **Add template to `src/prompts/templates.js`**:
+2. **Add template to `src/prompts/templates.js` using `buildCustomGatherer()`**:
 
 ```javascript
+import { buildCustomGatherer } from '../utils/customTemplateRunner.js';
+
 export const TEMPLATES = {
   // ... existing templates
 
@@ -138,23 +169,85 @@ export const TEMPLATES = {
     type: 'auto',                // 'auto' = runs immediately, 'prompt' = waits for user input
     category: 'daily',           // Group: 'daily', 'memory', 'focus'
     triggers: ['keyword1', 'keyword2'],  // Intent detection keywords
-    gather: async () => {
-      // Collect context data
-      const tabs = await getAllTabs();
-      const todayLog = await getMeaningfulHistory(20);
 
-      return { tabs, todayLog };
+    // ⭐ Use unified gatherer for consistency
+    gather: async () => {
+      const result = await buildCustomGatherer({
+        timeRange: { type: 'today' },  // or 'yesterday', 'this_week', { type: 'last_n_days', n: 7 }
+        domains: [],                    // e.g., ['github.com', 'stackoverflow.com']
+        source: 'both',                 // 'both', 'live', or 'history'
+        includeTabs: false,             // true to include open tabs
+        minActiveMinutes: 0,            // minimum active time filter
+        minVisitCount: 1                // minimum visit count filter
+      });
+
+      // Optional: transform data for your specialized prompt
+      const processedData = result.entries.slice(0, 20);
+
+      return {
+        entries: processedData,
+        tabs: result.tabs,
+        // Add any custom fields your prompt needs
+        customField: 'value'
+      };
     },
     prompt: 'yourPrompt'  // Must match key in PromptRegistry!
   }
 };
 ```
 
-3. **Test**:
+3. **Update `validateContext` in registry.js**:
+
+```javascript
+const expectedFields = {
+  // ... other prompts
+  yourPrompt: ['entries', 'tabs', 'customField']
+};
+```
+
+4. **Test**:
+   - Run `npm run build`
    - Reload extension
    - Open Ask tab
    - Click your button
    - Verify response
+
+### Unified Architecture Benefits
+
+All templates (built-in and custom) now use `buildCustomGatherer()`:
+
+✅ **DRY**: Single implementation for data gathering
+✅ **Consistent**: Same filters across all templates
+✅ **Maintainable**: Bug fixes benefit all templates
+✅ **Future-proof**: New time ranges work everywhere
+
+**Example: Standup template uses unified gatherer**
+```javascript
+gather: async () => {
+  const result = await buildCustomGatherer({
+    timeRange: { type: 'today' },
+    domains: [],
+    source: 'both',
+    includeTabs: false,
+    minActiveMinutes: 0,
+    minVisitCount: 1
+  });
+
+  // Extract copies from entries
+  const copies = result.entries
+    .filter(e => e.copied?.length > 0)
+    .slice(0, 10);
+
+  return {
+    todayLog: result.entries,
+    lastActivityLog: await storage.getLastActivityLog(),
+    copies,
+    format: 'bullets',
+    lastDayLabel: 'Yesterday',
+    isFirstRun: false
+  };
+}
+```
 
 ### Template Types
 
@@ -291,6 +384,52 @@ const byDate = logs.reduce((acc, e) => {
   return acc
 }, {})
 console.table(byDate)
+```
+
+---
+
+### View Custom Templates
+
+See all user-created custom templates:
+
+```javascript
+const result = await chrome.storage.local.get('customTemplates')
+console.table(result.customTemplates)
+```
+
+---
+
+### Test buildCustomGatherer
+
+Test the unified gatherer function with custom filters:
+
+```javascript
+// Import storage functions
+const { getEntriesForRange } = await import('./storage/index.js')
+
+// Test today's entries
+const today = await getEntriesForRange({ type: 'today' })
+console.log('Today entries:', today.length)
+console.table(today.slice(0, 5))
+
+// Test last 7 days with domain filter
+const { buildCustomGatherer } = await import('./utils/customTemplateRunner.js')
+const result = await buildCustomGatherer({
+  timeRange: { type: 'last_n_days', n: 7 },
+  domains: ['github.com'],
+  source: 'both',
+  includeTabs: false,
+  minActiveMinutes: 5,
+  minVisitCount: 1
+})
+
+console.log('Filtered result:', result.isEmpty ? 'EMPTY' : `${result.entries.length} entries`)
+if (result.isEmpty) {
+  console.log('Reason:', result.emptyReason)
+  console.log('Message:', result.emptyMessage)
+} else {
+  console.table(result.entries)
+}
 ```
 
 ---

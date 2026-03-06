@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TEMPLATES } from '../../prompts/templates.js';
+import { getAllTemplates } from '../../prompts/templates.js';
 
 /**
  * Ask component - AI chat with browser context awareness + templates
@@ -13,6 +13,8 @@ function Ask({ messages, onMessagesChange }) {
   const [tabsLoading, setTabsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [todayStats, setTodayStats] = useState(null);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const loadingTimers = useRef([]);
@@ -82,6 +84,7 @@ function Ask({ messages, onMessagesChange }) {
   useEffect(() => {
     loadTabContext();
     loadTodayStats();
+    loadTemplates();
 
     // Listen for tab updates from background
     const handleTabUpdate = (message) => {
@@ -96,6 +99,23 @@ function Ask({ messages, onMessagesChange }) {
       chrome.runtime.onMessage.removeListener(handleTabUpdate);
     };
   }, []);
+
+  /**
+   * Load all templates (built-in + custom)
+   */
+  async function loadTemplates() {
+    setTemplatesLoading(true);
+    try {
+      const allTemplates = await getAllTemplates();
+      setTemplates(allTemplates);
+    } catch (error) {
+      console.error('Error loading templates:', error);
+      // Fall back to empty array - component will still work
+      setTemplates([]);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }
 
   /**
    * Load current tab context
@@ -279,15 +299,15 @@ function Ask({ messages, onMessagesChange }) {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
         {/* Template Buttons - Only show when no messages */}
-        {messages.length === 0 && (
+        {messages.length === 0 && !templatesLoading && (
           <div className="px-4 py-3 border-b border-gray-200">
-            {/* AUTO templates - run immediately */}
+            {/* AUTO templates - run immediately (built-in only) */}
             <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">
               Quick actions
             </p>
             <div className="flex flex-wrap gap-2 mb-3">
-              {Object.values(TEMPLATES)
-                .filter(t => t.type === 'auto')
+              {templates
+                .filter(t => t.type === 'auto' && !t.isCustom)
                 .map(t => (
                   <button
                     key={t.label}
@@ -299,13 +319,13 @@ function Ask({ messages, onMessagesChange }) {
                 ))}
             </div>
 
-            {/* PROMPT templates - prefill input */}
+            {/* PROMPT templates - prefill input (built-in only) */}
             <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">
               Search memory
             </p>
-            <div className="flex flex-wrap gap-2">
-              {Object.values(TEMPLATES)
-                .filter(t => t.type === 'prompt')
+            <div className="flex flex-wrap gap-2 mb-3">
+              {templates
+                .filter(t => t.type === 'prompt' && !t.isCustom)
                 .map(t => (
                   <button
                     key={t.label}
@@ -316,6 +336,35 @@ function Ask({ messages, onMessagesChange }) {
                   </button>
                 ))}
             </div>
+
+            {/* CUSTOM templates - separate group */}
+            {templates.filter(t => t.isCustom).length > 0 && (
+              <>
+                <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">
+                  My Templates
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {templates
+                    .filter(t => t.isCustom)
+                    .map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => handleTemplateClick(t)}
+                        className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-sm text-purple-700 border border-purple-200 rounded transition-colors flex items-center gap-1 group"
+                      >
+                        <span>{t.label}</span>
+                        <span className="opacity-0 group-hover:opacity-100 text-xs">✏️</span>
+                      </button>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {templatesLoading && messages.length === 0 && (
+          <div className="px-4 py-3 text-center text-gray-500 text-sm">
+            Loading templates...
           </div>
         )}
 

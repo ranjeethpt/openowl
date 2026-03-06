@@ -127,7 +127,10 @@ function App() {
       <main className="flex-1 min-h-0 overflow-hidden relative">
         {!isConfigured && currentView === 'settings' && (
           <div className="absolute top-0 left-0 right-0 z-10 p-6 bg-owl-blue/10 border-b border-owl-blue/20">
-            <p className="text-sm text-owl-blue font-semibold">👋 Welcome to OpenOwl!</p>
+            <div className="flex items-center gap-2">
+              <img src="/icons/icon32.png" alt="OpenOwl" className="w-6 h-6" />
+              <p className="text-sm text-owl-blue font-semibold">Welcome to OpenOwl!</p>
+            </div>
             <p className="text-xs text-gray-600 mt-1">Connect your AI to get started. Takes 30 seconds.</p>
           </div>
         )}

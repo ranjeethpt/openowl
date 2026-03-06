@@ -1,5 +1,21 @@
+// Provider keys - single source of truth for provider identifiers
+export const PROVIDERS = {
+  CLAUDE: 'claude',
+  OPENAI: 'openai',
+  GEMINI: 'gemini',
+  OLLAMA: 'ollama'
+};
+
+// Provider display names - single source of truth
+export const PROVIDER_NAMES = {
+  [PROVIDERS.CLAUDE]: 'Anthropic Claude',
+  [PROVIDERS.OPENAI]: 'OpenAI',
+  [PROVIDERS.GEMINI]: 'Google Gemini',
+  [PROVIDERS.OLLAMA]: 'Ollama'
+};
+
 export const DEFAULT_SETTINGS = {
-  selectedProvider: 'claude',
+  selectedProvider: PROVIDERS.CLAUDE,
   selectedModel: 'claude-sonnet-4-20250514',
   apiKeys: {},
   ollamaUrl: 'http://localhost:11434'

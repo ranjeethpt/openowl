@@ -1,15 +1,21 @@
 /**
  * Intent Detection - Match user questions to templates
  */
-import { TEMPLATES } from '../prompts/templates.js';
+import { getAllTemplates } from '../prompts/templates.js';
 
-export function detectTemplate(question) {
+export async function detectTemplate(question) {
   if (!question) return null;
 
   const q = question.toLowerCase().trim();
 
-  for (const [key, template] of Object.entries(TEMPLATES)) {
-    if (template.triggers.some(t => q.includes(t))) {
+  // Get all templates (built-in + custom)
+  const allTemplates = await getAllTemplates();
+
+  for (const template of allTemplates) {
+    // For built-in templates, use the key; for custom, use the id
+    const key = template.key || template.id;
+
+    if (template.triggers && template.triggers.some(t => q.includes(t))) {
       return { key, template };
     }
   }
