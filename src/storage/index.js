@@ -7,6 +7,35 @@ import { openDB } from 'idb';
 import { DEFAULT_SETTINGS, DEFAULT_PREFERENCES } from '../constants.js';
 export { DEFAULT_SETTINGS, DEFAULT_PREFERENCES };
 
+/**
+ * @typedef {Object} CopiedSnippet
+ * @property {string} text - The copied text
+ * @property {number} timestamp - When it was copied (milliseconds)
+ * @property {string} [pastedUrl] - URL where it was pasted (if detected)
+ * @property {number} [pastedAt] - When it was pasted (milliseconds)
+ */
+
+/**
+ * @typedef {Object} DayLogEntry
+ * @property {number} id - Auto-generated entry ID
+ * @property {string} url - Full URL of the page
+ * @property {string} title - Page title
+ * @property {string} domain - Domain (e.g., 'github.com')
+ * @property {string} content - Extracted page content
+ * @property {string} extractionType - Type of extractor used
+ * @property {string} date - Date string YYYY-MM-DD
+ * @property {number} visitedAt - Timestamp when visited
+ * @property {number|null} leftAt - Timestamp when left
+ * @property {number} activeTime - Active time in milliseconds
+ * @property {number} totalTime - Total time in milliseconds
+ * @property {number} scrollDepth - Scroll depth percentage
+ * @property {CopiedSnippet[]} copied - Array of copied snippets with metadata
+ * @property {boolean} revisited - Whether page was revisited
+ * @property {number} visitCount - Number of visits to this URL
+ * @property {string} sessionId - Session identifier
+ * @property {string} [source] - 'history_import' if imported from browser history
+ */
+
 // IndexedDB database name and version
 const DB_NAME = 'openowl-db';
 const DB_VERSION = 2;
@@ -162,7 +191,7 @@ export async function saveDayLogEntry(entry) {
 /**
  * Get day log entries for a specific date (defaults to today)
  * @param {string} date - YYYY-MM-DD format (optional, defaults to today)
- * @returns {Promise<Array>}
+ * @returns {Promise<DayLogEntry[]>}
  */
 export async function getDayLog(date) {
   const db = await initDB();
@@ -201,7 +230,7 @@ export async function getAllHistory(limit = 100) {
  * Get ALL logs across all dates (for memory search)
  * Different from getAllHistory() which has a limit
  * Used by memorySearch to scan full 30 days
- * @returns {Promise<Array>}
+ * @returns {Promise<DayLogEntry[]>}
  */
 export async function getAllLogs() {
   const db = await initDB();
@@ -576,7 +605,7 @@ export async function getHistoryImportStats() {
 
 /**
  * Get all copied snippets from today
- * @returns {Promise<Array>} Array of {snippet, domain, url, visitedAt}
+ * @returns {Promise<Array>} Array of {text, timestamp, domain, url, sourceUrl}
  */
 export async function getCopiedSnippets() {
   const entries = await getDayLog();
@@ -586,19 +615,22 @@ export async function getCopiedSnippets() {
 
   for (const entry of entries) {
     if (entry.copied && Array.isArray(entry.copied) && entry.copied.length > 0) {
-      for (const snippet of entry.copied) {
+      for (const copiedItem of entry.copied) {
         snippets.push({
-          snippet,
+          text: copiedItem.text,
+          timestamp: copiedItem.timestamp,
           domain: entry.domain,
           url: entry.url,
-          visitedAt: entry.visitedAt
+          sourceUrl: entry.url,
+          pastedUrl: copiedItem.pastedUrl,
+          pastedAt: copiedItem.pastedAt
         });
       }
     }
   }
 
-  // Sort by visitedAt descending (most recent first)
-  snippets.sort((a, b) => (b.visitedAt || 0) - (a.visitedAt || 0));
+  // Sort by timestamp descending (most recent first)
+  snippets.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
   return snippets;
 }
@@ -832,5 +864,89 @@ export async function updateCustomTemplate(id, changes) {
   } catch (error) {
     console.error('[updateCustomTemplate] Error:', error);
     // Silently fail - no-op
+  }
+}
+
+// ============================================
+// Today Tab Redesign Functions
+// ============================================
+
+/**
+ * Get all live entries (not history_import)
+ * @returns {Promise<Array>} All live entries across all dates
+ */
+export async function getLiveEntries() {
+  try {
+    const db = await initDB();
+    const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+    const allEntries = await tx.store.getAll();
+
+    return allEntries.filter(entry => entry.source !== 'history_import');
+  } catch (error) {
+    console.error('[getLiveEntries] Error:', error);
+    return [];
+  }
+}
+
+/**
+ * Get live entries for today only
+ * @returns {Promise<Array>} Today's live entries
+ */
+export async function getLiveEntriesToday() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const entries = await getDayLog(today);
+
+    return entries.filter(entry => entry.source !== 'history_import');
+  } catch (error) {
+    console.error('[getLiveEntriesToday] Error:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all history_import entries
+ * @returns {Promise<Array>} All history import entries
+ */
+export async function getHistoryImportEntries() {
+  try {
+    const db = await initDB();
+    const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
+    const allEntries = await tx.store.getAll();
+
+    return allEntries.filter(entry => entry.source === 'history_import');
+  } catch (error) {
+    console.error('[getHistoryImportEntries] Error:', error);
+    return [];
+  }
+}
+
+/**
+ * Get entries for Work History section (last N days)
+ * Combines live and history_import, sorted by date and visitedAt descending
+ * @param {number} days - Number of days to look back (default 7)
+ * @returns {Promise<Array>} Entries sorted by date desc, then visitedAt desc
+ */
+export async function getEntriesForHistory(days = 7) {
+  try {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = today.toISOString().split('T')[0];
+
+    const entries = await getLogRange(startDateStr, endDateStr);
+
+    // Sort by visitedAt descending (most recent first)
+    entries.sort((a, b) => (b.visitedAt || 0) - (a.visitedAt || 0));
+
+    return entries;
+  } catch (error) {
+    console.error('[getEntriesForHistory] Error:', error);
+    return [];
   }
 }

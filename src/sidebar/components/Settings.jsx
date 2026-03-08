@@ -82,7 +82,6 @@ function Settings({ onSave }) {
   const [templateForm, setTemplateForm] = useState({
     name: '',
     icon: '📋',
-    type: 'auto',
     timeRange: 'last_7_days',
     domains: [],
     source: 'both',
@@ -305,7 +304,6 @@ function Settings({ onSave }) {
       setTemplateForm({
         name: template.name,
         icon: template.icon || '📋',
-        type: template.type || 'auto',
         timeRange: template.filters?.timeRange?.type === 'last_n_days'
           ? `last_${template.filters.timeRange.n}_days`
           : template.filters?.timeRange?.type || 'last_7_days',
@@ -322,7 +320,6 @@ function Settings({ onSave }) {
       setTemplateForm({
         name: '',
         icon: '📋',
-        type: 'auto',
         timeRange: 'last_7_days',
         domains: [],
         source: 'both',
@@ -388,7 +385,7 @@ function Settings({ onSave }) {
       ...(editingTemplate || {}),
       name,
       icon: templateForm.icon || '📋',
-      type: templateForm.type,
+      type: 'auto', // Custom templates always run immediately
       userInstructions: templateForm.userInstructions,
       outputFormat: templateForm.outputFormat,
       filters: {
@@ -823,8 +820,8 @@ function Settings({ onSave }) {
               {/* Icon */}
               <div className="mb-4">
                 <label className="block text-xs font-medium text-gray-700 mb-1">Icon</label>
-                <div className="grid grid-cols-6 gap-2 mb-2">
-                  {['📋','📊','🎯','🔍','🎫','📅','⚡','🔧','📝','💡','🚀','🏃','✅','🐛','💬','📌','🔖','⭐'].map(emoji => (
+                <div className="grid grid-cols-6 gap-2">
+                  {['📋','📊','🎯','🔍','🎫','📅','⚡','🔧','💼','💡','🚀','🌟','✅','🐛','💬','📌','🔖','🎨'].map(emoji => (
                     <button
                       key={emoji}
                       onClick={() => setTemplateForm({ ...templateForm, icon: emoji })}
@@ -837,40 +834,6 @@ function Settings({ onSave }) {
                       {emoji}
                     </button>
                   ))}
-                </div>
-                <input
-                  type="text"
-                  value={templateForm.icon}
-                  onChange={(e) => setTemplateForm({ ...templateForm, icon: e.target.value.substring(0, 2) })}
-                  placeholder="📋"
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                />
-              </div>
-
-              {/* Type */}
-              <div className="mb-4">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      value="auto"
-                      checked={templateForm.type === 'auto'}
-                      onChange={(e) => setTemplateForm({ ...templateForm, type: e.target.value })}
-                      className="mr-2"
-                    />
-                    <span className="text-sm text-gray-700">Runs immediately when clicked</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      value="prompt"
-                      checked={templateForm.type === 'prompt'}
-                      onChange={(e) => setTemplateForm({ ...templateForm, type: e.target.value })}
-                      className="mr-2"
-                    />
-                    <span className="text-sm text-gray-700">Prefills input field, you complete it</span>
-                  </label>
                 </div>
               </div>
 
@@ -894,7 +857,12 @@ function Settings({ onSave }) {
 
               {/* Domains */}
               <div className="mb-4">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Domains (optional)</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Domains (optional)
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Only include activity from these domains. Leave empty to include all domains.
+                </p>
                 <div className="flex gap-2 mb-2">
                   <input
                     type="text"
@@ -990,7 +958,12 @@ function Settings({ onSave }) {
 
               {/* Min Active Time */}
               <div className="mb-4">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Min active time (minutes)</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Min active time (minutes)
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Only include pages where you spent at least this many minutes actively reading/working. Set to 0 to include all pages.
+                </p>
                 <input
                   type="number"
                   min="0"
@@ -1075,7 +1048,7 @@ function Settings({ onSave }) {
           )}
           <li>• No data sent to OpenOwl or any third party</li>
           <li>• No analytics, no tracking, no telemetry</li>
-          <li>• Open source and auditable</li>
+          <li>• Open source and auditable - <a href="https://github.com/ranjeethpt/openowl" target="_blank" rel="noopener noreferrer" className="text-owl-blue hover:underline">View source code</a></li>
         </ul>
       </div>
       </div>

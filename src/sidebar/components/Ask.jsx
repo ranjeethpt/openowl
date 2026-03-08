@@ -237,12 +237,13 @@ function Ask({ messages, onMessagesChange }) {
     if (template.type === 'prompt') {
       // DO NOT clear messages - user might be following up
       // Prefill input, let user complete
-      setInput(template.prefill);
+      const prefillText = template.prefill || '';
+      setInput(prefillText);
       textareaRef.current?.focus();
       // Move cursor to end
       setTimeout(() => {
         if (textareaRef.current) {
-          const len = template.prefill.length;
+          const len = prefillText.length;
           textareaRef.current.setSelectionRange(len, len);
         }
       }, 0);
@@ -402,10 +403,10 @@ function Ask({ messages, onMessagesChange }) {
                 >
                   <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
 
-                  {/* Context Info for AI messages */}
-                  {msg.role === 'assistant' && msg.context && (
+                  {/* Token count for AI messages */}
+                  {msg.role === 'assistant' && msg.context?.estimatedTokens && (
                     <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
-                      Used {msg.context.tabsUsed} of {msg.context.totalTabs} tabs · {msg.context.historyEntries || 0} history entries · ~{msg.context.estimatedTokens} tokens
+                      ~{msg.context.estimatedTokens} tokens
                     </div>
                   )}
                 </div>
