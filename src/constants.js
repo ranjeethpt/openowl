@@ -21,6 +21,45 @@ export const DEFAULT_SETTINGS = {
   ollamaUrl: 'http://localhost:11434'
 };
 
+// Model context window limits (in tokens)
+// Conservative estimates to leave room for response
+export const MODEL_CONTEXT_LIMITS = {
+  // Claude models
+  'claude-sonnet-4-20250514': 180000, // 200k context, use 180k for safety
+  'claude-3-5-sonnet-20241022': 180000,
+  'claude-3-5-sonnet-20240620': 180000,
+  'claude-3-5-haiku-20241022': 180000,
+  'claude-3-opus-20240229': 180000,
+  'claude-3-sonnet-20240229': 180000,
+  'claude-3-haiku-20240307': 180000,
+
+  // OpenAI models
+  'gpt-4o': 120000, // 128k context
+  'gpt-4o-mini': 120000,
+  'gpt-4-turbo': 120000,
+  'gpt-4': 7000, // 8k context
+  'gpt-3.5-turbo': 15000, // 16k context
+
+  // Gemini models
+  'gemini-2.0-flash-exp': 950000, // 1M context
+  'gemini-1.5-pro': 1900000, // 2M context
+  'gemini-1.5-flash': 950000,
+  'gemini-1.0-pro': 28000, // 32k context
+
+  // Ollama - depends on model, use conservative default
+  'ollama': 28000, // 32k default for most models
+
+  // Default fallback
+  'default': 28000 // Safe default for unknown models
+};
+
+// Tab fetch timeout settings
+export const TAB_FETCH_TIMEOUT = {
+  base: 2000, // Base timeout in ms
+  perTab: 50, // Additional ms per tab
+  max: 10000 // Maximum timeout in ms
+};
+
 export const DEFAULT_PREFERENCES = {
   neverTrack: [
     'youtube.com',
