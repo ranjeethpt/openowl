@@ -10,6 +10,7 @@
     "generate-icons": "node scripts/generate-icons.js"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "idb": "^8.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

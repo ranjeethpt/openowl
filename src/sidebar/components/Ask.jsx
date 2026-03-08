@@ -404,9 +404,12 @@ function Ask({ messages, onMessagesChange }) {
                   <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
 
                   {/* Token count for AI messages */}
-                  {msg.role === 'assistant' && msg.context?.estimatedTokens && (
+                  {msg.role === 'assistant' && msg.context?.tokensUsed && (
                     <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
-                      ~{msg.context.estimatedTokens} tokens
+                      {msg.context.usage?.estimated ? '~' : ''}{msg.context.tokensUsed.toLocaleString()} tokens
+                      {msg.context.usage && !msg.context.usage.estimated && (
+                        <span className="ml-1 text-gray-400" title="Actual tokens from API">✓</span>
+                      )}
                     </div>
                   )}
                 </div>

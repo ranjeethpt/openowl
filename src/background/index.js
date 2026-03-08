@@ -7,6 +7,7 @@ import { callLLM } from '../llm/index.js';
 import * as storage from '../storage/index.js';
 import { getPrompt } from '../prompts/registry.js';
 import { detectTemplate } from '../utils/intentDetector.js';
+import { MODEL_CONTEXT_LIMITS, TAB_FETCH_TIMEOUT } from '../constants.js';
 
 // ============================================
 // Service Worker Lifecycle
@@ -170,6 +171,13 @@ async function handleGetAllTabs(sendResponse) {
     const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const activeTabId = activeTabs[0]?.id;
 
+    // Calculate dynamic timeout based on number of tabs
+    const timeout = Math.min(
+      TAB_FETCH_TIMEOUT.base + (tabs.length * TAB_FETCH_TIMEOUT.perTab),
+      TAB_FETCH_TIMEOUT.max
+    );
+    console.log(`[Tabs] Using ${timeout}ms timeout for ${tabs.length} tabs`);
+
     for (const tab of tabs) {
       // Skip chrome:// extension URLs, and new tab pages
       if (tab.url?.startsWith('chrome://') ||
@@ -181,11 +189,11 @@ async function handleGetAllTabs(sendResponse) {
       }
 
       try {
-        // Send READ_PAGE message to content script with 2 second timeout
+        // Send READ_PAGE message to content script with dynamic timeout
         const response = await Promise.race([
           chrome.tabs.sendMessage(tab.id, { type: 'READ_PAGE' }),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), 2000)
+            setTimeout(() => reject(new Error('timeout')), timeout)
           )
         ]);
 
@@ -328,11 +336,35 @@ async function handleGetTodayStats(sendResponse) {
 }
 
 /**
+ * Get token budget for current model
+ * @param {string} modelName - Model identifier
+ * @returns {number} Token budget for context
+ */
+function getModelTokenBudget(modelName) {
+  // For Ollama, use the conservative default
+  if (!modelName || modelName === 'ollama') {
+    return MODEL_CONTEXT_LIMITS.ollama;
+  }
+
+  // Check if we have a specific limit for this model
+  const limit = MODEL_CONTEXT_LIMITS[modelName];
+  if (limit) {
+    console.log(`[Context] Using ${limit.toLocaleString()} token budget for ${modelName}`);
+    return limit;
+  }
+
+  // Use default for unknown models
+  console.log(`[Context] Unknown model ${modelName}, using default ${MODEL_CONTEXT_LIMITS.default.toLocaleString()} token budget`);
+  return MODEL_CONTEXT_LIMITS.default;
+}
+
+/**
  * Build full context with tabs + history + copied snippets
  * @param {string} question - The question being asked
+ * @param {string} modelName - Model being used (for token budget)
  * @returns {Promise<Object>} Full context object
  */
-async function buildFullContext(question) {
+async function buildFullContext(question, modelName = null) {
   // Step 1: Live tabs (Feature 2)
   const tabsResult = await new Promise((resolve) => {
     handleGetAllTabs(resolve);
@@ -387,9 +419,10 @@ async function buildFullContext(question) {
     selectedHistory = history.slice(0, 5);
   }
 
-  // Step 6: Token budget (4000 tokens = ~16000 chars)
+  // Step 6: Dynamic token budget based on model
+  const tokenBudget = getModelTokenBudget(modelName);
+  const charBudget = tokenBudget * 4; // ~4 chars per token
   let totalChars = 0;
-  const BUDGET = 16000;
 
   // Priority: active tab > copies > history > other tabs
   const activeTab = selectedTabs.find(t => t.active);
@@ -404,7 +437,7 @@ async function buildFullContext(question) {
   const finalHistory = [];
   for (const entry of selectedHistory) {
     const entryChars = (entry.title?.length || 0) + 50;
-    if (totalChars + entryChars > BUDGET) break;
+    if (totalChars + entryChars > charBudget) break;
     finalHistory.push(entry);
     totalChars += entryChars;
   }
@@ -412,7 +445,7 @@ async function buildFullContext(question) {
   const finalTabs = [];
   for (const tab of selectedTabs) {
     const tabChars = (tab.content?.length || 0);
-    if (totalChars + tabChars > BUDGET) {
+    if (totalChars + tabChars > charBudget) {
       // Include with truncated content
       finalTabs.push({
         ...tab,
@@ -423,6 +456,8 @@ async function buildFullContext(question) {
       totalChars += tabChars;
     }
   }
+
+  console.log(`[Context] Built context: ${totalChars.toLocaleString()} chars (~${Math.round(totalChars / 4).toLocaleString()} tokens) of ${tokenBudget.toLocaleString()} budget`);
 
   return {
     tabs: finalTabs,
@@ -486,7 +521,7 @@ async function handleAskAI(data, sendResponse) {
       const currentPrompt = user || question;
 
       // Call LLM with full conversation history
-      const text = await callLLM({
+      const result = await callLLM({
         provider: settings.selectedProvider,
         apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
         model: settings.selectedModel,
@@ -497,9 +532,15 @@ async function handleAskAI(data, sendResponse) {
         ollamaUrl: settings.ollamaUrl
       });
 
-      // Calculate estimated tokens from template data
-      const estimatedTokens = templateData.estimatedTokens ||
-                             (system?.length ? Math.round(system.length / 4) : 0);
+      // Extract text and usage (handle both streaming string and non-streaming object)
+      const text = typeof result === 'string' ? result : result.text;
+      const usage = typeof result === 'object' ? result.usage : null;
+
+      // Use actual tokens if available, otherwise estimate
+      const tokensUsed = usage?.total_tokens || templateData.estimatedTokens ||
+                        (system?.length ? Math.round(system.length / 4) : 0);
+
+      console.log(`[ASK_AI] Template ${key} - Tokens:`, usage || 'estimated');
 
       sendResponse({
         success: true,
@@ -507,7 +548,8 @@ async function handleAskAI(data, sendResponse) {
           text,
           templateUsed: key,
           context: {
-            estimatedTokens
+            tokensUsed,
+            usage: usage || { estimated: true }
           }
         }
       });
@@ -516,7 +558,7 @@ async function handleAskAI(data, sendResponse) {
 
     // No template match → general full context
     console.log('[ASK_AI] No template match, using full context');
-    const context = await buildFullContext(question);
+    const context = await buildFullContext(question, settings.selectedModel);
     const builtPrompt = getPrompt('ask', {
       tabs: context.tabs,
       tabCount: context.tabsUsed,
@@ -525,7 +567,7 @@ async function handleAskAI(data, sendResponse) {
       copies: context.copies
     });
 
-    const text = await callLLM({
+    const result = await callLLM({
       provider: settings.selectedProvider,
       apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
       model: settings.selectedModel,
@@ -536,12 +578,20 @@ async function handleAskAI(data, sendResponse) {
       ollamaUrl: settings.ollamaUrl
     });
 
+    // Extract text and usage
+    const text = typeof result === 'string' ? result : result.text;
+    const usage = typeof result === 'object' ? result.usage : null;
+    const tokensUsed = usage?.total_tokens || context.estimatedTokens;
+
+    console.log('[ASK_AI] General context - Tokens:', usage || 'estimated');
+
     sendResponse({
       success: true,
       data: {
         text,
         context: {
-          estimatedTokens: context.estimatedTokens
+          tokensUsed,
+          usage: usage || { estimated: true }
         }
       }
     });
@@ -671,7 +721,7 @@ async function handleGenerateInsight(data, sendResponse) {
     const settings = await storage.getSettings();
 
     // Call LLM
-    const text = await callLLM({
+    const result = await callLLM({
       provider: settings.selectedProvider,
       apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
       model: settings.selectedModel,
@@ -679,6 +729,12 @@ async function handleGenerateInsight(data, sendResponse) {
       systemPrompt: system,
       ollamaUrl: settings.ollamaUrl
     });
+
+    // Extract text and usage
+    const text = typeof result === 'string' ? result : result.text;
+    const usage = typeof result === 'object' ? result.usage : null;
+
+    console.log('[Insight] Generated insight - Tokens:', usage || 'estimated');
 
     // Cache the result (12-hour TTL)
     await storage.cacheInsight(todayDate, text);
@@ -688,7 +744,8 @@ async function handleGenerateInsight(data, sendResponse) {
       data: {
         text,
         cached: false,
-        generatedAt: new Date().toISOString()
+        generatedAt: new Date().toISOString(),
+        usage: usage || { estimated: true }
       }
     });
   } catch (error) {
@@ -746,8 +803,10 @@ async function handleAnalyzePatterns(sendResponse) {
       return;
     }
 
-    // Analyze patterns
-    const patterns = analyzePatterns(entries);
+    console.log(`[Patterns] Analyzing ${entries.length} entries`);
+
+    // Analyze patterns with chunked processing
+    const patterns = await analyzePatterns(entries);
 
     // Save patterns to storage
     await storage.savePatterns(patterns);
@@ -760,23 +819,58 @@ async function handleAnalyzePatterns(sendResponse) {
 }
 
 /**
- * Analyze patterns from day log entries
- * @param {Array} entries - Day log entries from last 7 days
- * @returns {Object} Analyzed patterns
+ * Process entries in chunks to avoid blocking
+ * @param {Array} items - Items to process
+ * @param {Function} processor - Function to process each chunk
+ * @param {number} chunkSize - Size of each chunk
  */
-function analyzePatterns(entries) {
-  // Morning routine (sites visited 6am-10am)
-  const morningEntries = entries.filter(e => {
-    const hour = new Date(e.visitedAt).getHours();
-    return hour >= 6 && hour < 10;
-  });
+async function processInChunks(items, processor, chunkSize = 1000) {
+  const results = [];
 
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+
+    // Process chunk
+    const result = await new Promise((resolve) => {
+      // Use setTimeout to yield to event loop
+      setTimeout(() => {
+        resolve(processor(chunk));
+      }, 0);
+    });
+
+    results.push(result);
+  }
+
+  return results;
+}
+
+/**
+ * Analyze patterns from day log entries
+ * Uses chunked processing to avoid blocking on large datasets
+ * @param {Array} entries - Day log entries from last 7 days
+ * @returns {Promise<Object>} Analyzed patterns
+ */
+async function analyzePatterns(entries) {
+  const startTime = Date.now();
+
+  // Process in chunks if dataset is large
+  const CHUNK_SIZE = 1000;
+  const shouldChunk = entries.length > CHUNK_SIZE;
+
+  if (shouldChunk) {
+    console.log(`[Patterns] Large dataset (${entries.length} entries), using chunked processing`);
+  }
+
+  // Morning routine (sites visited 6am-10am)
   const morningDomains = {};
-  morningEntries.forEach(e => {
-    if (e.domain) {
-      morningDomains[e.domain] = (morningDomains[e.domain] || 0) + 1;
-    }
-  });
+  await processInChunks(entries, (chunk) => {
+    chunk.forEach(e => {
+      const hour = new Date(e.visitedAt).getHours();
+      if (hour >= 6 && hour < 10 && e.domain) {
+        morningDomains[e.domain] = (morningDomains[e.domain] || 0) + 1;
+      }
+    });
+  }, CHUNK_SIZE);
 
   const morningRoutine = Object.entries(morningDomains)
     .sort((a, b) => b[1] - a[1])
@@ -785,10 +879,12 @@ function analyzePatterns(entries) {
 
   // Peak hours (most active hours)
   const hourCounts = {};
-  entries.forEach(e => {
-    const hour = new Date(e.visitedAt).getHours();
-    hourCounts[hour] = (hourCounts[hour] || 0) + (e.activeTime || 0);
-  });
+  await processInChunks(entries, (chunk) => {
+    chunk.forEach(e => {
+      const hour = new Date(e.visitedAt).getHours();
+      hourCounts[hour] = (hourCounts[hour] || 0) + (e.activeTime || 0);
+    });
+  }, CHUNK_SIZE);
 
   const peakHours = Object.entries(hourCounts)
     .sort((a, b) => b[1] - a[1])
@@ -800,11 +896,13 @@ function analyzePatterns(entries) {
 
   // Top sites (by active time)
   const siteTimes = {};
-  entries.forEach(e => {
-    if (e.domain) {
-      siteTimes[e.domain] = (siteTimes[e.domain] || 0) + (e.activeTime || 0);
-    }
-  });
+  await processInChunks(entries, (chunk) => {
+    chunk.forEach(e => {
+      if (e.domain) {
+        siteTimes[e.domain] = (siteTimes[e.domain] || 0) + (e.activeTime || 0);
+      }
+    });
+  }, CHUNK_SIZE);
 
   const topSites = Object.entries(siteTimes)
     .sort((a, b) => b[1] - a[1])
@@ -813,14 +911,16 @@ function analyzePatterns(entries) {
 
   // Work clusters (sites visited together in same session)
   const sessionClusters = {};
-  entries.forEach(e => {
-    if (!e.sessionId || !e.domain) return;
+  await processInChunks(entries, (chunk) => {
+    chunk.forEach(e => {
+      if (!e.sessionId || !e.domain) return;
 
-    if (!sessionClusters[e.sessionId]) {
-      sessionClusters[e.sessionId] = new Set();
-    }
-    sessionClusters[e.sessionId].add(e.domain);
-  });
+      if (!sessionClusters[e.sessionId]) {
+        sessionClusters[e.sessionId] = new Set();
+      }
+      sessionClusters[e.sessionId].add(e.domain);
+    });
+  }, CHUNK_SIZE);
 
   // Find common clusters
   const clusterPatterns = {};
@@ -868,6 +968,9 @@ function analyzePatterns(entries) {
         sessionLengths.reduce((sum, len) => sum + len, 0) / sessionLengths.length
       )
     : 0;
+
+  const duration = Date.now() - startTime;
+  console.log(`[Patterns] Analysis completed in ${duration}ms`);
 
   return {
     morningRoutine,

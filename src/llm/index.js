@@ -9,7 +9,7 @@ import { PROVIDERS, PROVIDER_NAMES } from '../constants.js';
  * Call LLM with streaming support and multi-turn conversations
  * @param {Object} config - { provider, apiKey, model, prompt, systemPrompt, messages, maxTokens, ollamaUrl }
  * @param {Function} onChunk - Callback for streaming chunks
- * @returns {Promise<string>} Full response text
+ * @returns {Promise<string|{text: string, usage: Object}>} Response text (streaming) or object with text and usage (non-streaming)
  */
 export async function callLLM(config, onChunk = null) {
   const { provider, apiKey, model, prompt, systemPrompt, messages = [], maxTokens, ollamaUrl } = config;
@@ -75,7 +75,14 @@ async function callClaude({ apiKey, model, prompt, systemPrompt, messages = [], 
     return handleClaudeStream(response, onChunk);
   } else {
     const data = await response.json();
-    return data.content[0].text;
+    return {
+      text: data.content[0].text,
+      usage: {
+        input_tokens: data.usage?.input_tokens || 0,
+        output_tokens: data.usage?.output_tokens || 0,
+        total_tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0)
+      }
+    };
   }
 }
 
@@ -173,7 +180,14 @@ async function callOpenAI({ apiKey, model, prompt, systemPrompt, messages = [], 
     return handleOpenAIStream(response, onChunk);
   } else {
     const data = await response.json();
-    return data.choices[0].message.content;
+    return {
+      text: data.choices[0].message.content,
+      usage: {
+        input_tokens: data.usage?.prompt_tokens || 0,
+        output_tokens: data.usage?.completion_tokens || 0,
+        total_tokens: data.usage?.total_tokens || 0
+      }
+    };
   }
 }
 
@@ -280,7 +294,14 @@ async function callGemini({ apiKey, model, prompt, systemPrompt, messages = [], 
     return handleGeminiStream(response, onChunk);
   } else {
     const data = await response.json();
-    return data.candidates[0].content.parts[0].text;
+    return {
+      text: data.candidates[0].content.parts[0].text,
+      usage: {
+        input_tokens: data.usageMetadata?.promptTokenCount || 0,
+        output_tokens: data.usageMetadata?.candidatesTokenCount || 0,
+        total_tokens: data.usageMetadata?.totalTokenCount || 0
+      }
+    };
   }
 }
 
@@ -377,7 +398,19 @@ async function callOllama({ model, prompt, systemPrompt, messages = [], maxToken
     return handleOllamaStream(response, onChunk);
   } else {
     const data = await response.json();
-    return data.response;
+    // Ollama provides token counts in some models
+    const inputTokens = data.prompt_eval_count || 0;
+    const outputTokens = data.eval_count || 0;
+
+    return {
+      text: data.response,
+      usage: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
+        estimated: inputTokens === 0 && outputTokens === 0 // Flag if we have no data
+      }
+    };
   }
 }
 
