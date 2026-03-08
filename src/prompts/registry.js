@@ -133,18 +133,21 @@ ${tab.content || '(no content extracted)'}${tab.compressed ? ' (truncated)' : ''
         : '(no tabs)';
 
       const historyContext = history.length > 0
-        ? history.map(e =>
-            `- ${e.domain}: ${e.title}
+        ? history.map(e => {
+            const copiedText = e.copied?.length > 0
+              ? (typeof e.copied[0] === 'string' ? e.copied[0] : e.copied[0]?.text || '')
+              : '';
+            return `- ${e.domain}: ${e.title}
       URL: ${e.url}
       Time: ${Math.round((e.activeTime || 0) / 60000)}m active
       Visits: ${e.visitCount || 1}
       ${e.source === 'history_import' ? '(from browser history)' : ''}
-      ${e.copied?.length > 0 ? `Copied: "${e.copied[0]}"` : ''}`
-          ).join('\n')
+      ${copiedText ? `Copied: "${copiedText}"` : ''}`;
+          }).join('\n')
         : '';
 
       const copiesContext = copies.length > 0
-        ? copies.map(c => `- "${c.snippet}" (${c.domain})`).join('\n')
+        ? copies.map(c => `- "${c.text}" (${c.domain})`).join('\n')
         : '';
 
       const system = `You are OpenOwl, AI assistant
@@ -253,7 +256,7 @@ Keep it friendly and under 100 words.`;
 
       // Format copied snippets
       const copiesContext = copies.length > 0
-        ? `\nCOPIED FROM PAGES:\n${copies.map(c => `- "${c.snippet}" (${getDisplayName(c.domain)})`).join('\n')}`
+        ? `\nCOPIED FROM PAGES:\n${copies.map(c => `- "${c.text}" (${getDisplayName(c.domain)})`).join('\n')}`
         : '';
 
       // Format templates - use lastDayLabel instead of "Yesterday"
@@ -572,7 +575,11 @@ They said: "${question}"
 MATCHING ENTRIES FOUND
 (scored by relevance, most relevant first):
 ${matches.length > 0
-  ? matches.map(e => `
+  ? matches.map(e => {
+      const copiedText = e.copied?.length > 0
+        ? (typeof e.copied[0] === 'string' ? e.copied[0] : e.copied[0]?.text || '')
+        : '';
+      return `
 - ${e.title}
   URL: ${e.url}
   Date: ${new Date(Number(e.visitedAt)).toLocaleDateString('en-AU', {
@@ -582,8 +589,9 @@ ${matches.length > 0
   })}
   Active: ${Math.round((e.activeTime||0)/60000)}m
   Visits: ${e.visitCount || 1}
-  ${e.copied?.length > 0 ? `Copied: "${e.copied[0]}"` : ''}
-`).join('\n')
+  ${copiedText ? `Copied: "${copiedText}"` : ''}
+`;
+    }).join('\n')
   : 'No matching entries found in work history.'}
 
 Rules:
@@ -609,9 +617,12 @@ Rules:
       const recentWork = todayLog.slice(0, 10).map(e =>
         `- ${e.domain}: ${e.title} (${Math.round((e.activeTime||0)/60000)}m)`
       ).join('\n') || 'No activity today';
-      const copiedItems = copies.slice(0, 5).map(e =>
-        `- ${e.copied[0].substring(0, 100)}`
-      ).join('\n') || 'Nothing copied';
+      const copiedItems = copies.slice(0, 5).map(e => {
+        const copiedText = typeof e.copied[0] === 'string'
+          ? e.copied[0]
+          : e.copied[0]?.text || '';
+        return `- ${copiedText.substring(0, 100)}`;
+      }).join('\n') || 'Nothing copied';
 
       return {
         system: `You are helping a developer decide what to focus on next.
@@ -727,9 +738,13 @@ Rules:
         const contentPreview = e.content
           ? e.content.substring(0, 150).replace(/\n/g, ' ')
           : '';
-        const copiedNote = e.copied && e.copied.length > 0
-          ? `\n   Copied: "${e.copied[0].substring(0, 100)}"`
-          : '';
+        let copiedNote = '';
+        if (e.copied && e.copied.length > 0) {
+          const copiedText = typeof e.copied[0] === 'string'
+            ? e.copied[0]
+            : e.copied[0]?.text || '';
+          copiedNote = copiedText ? `\n   Copied: "${copiedText.substring(0, 100)}"` : '';
+        }
         const sourceNote = e.source === 'history_import'
           ? ' (from browser history - no content available)'
           : '';

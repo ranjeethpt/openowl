@@ -51,12 +51,17 @@ export const TEMPLATES = {
       const copies = todayResult.entries
         .filter(e => e.copied && e.copied.length > 0)
         .slice(0, 10)
-        .map(e => ({
-          snippet: e.copied[0],
-          domain: e.domain,
-          url: e.url,
-          visitedAt: e.visitedAt
-        }));
+        .map(e => {
+          const copiedText = typeof e.copied[0] === 'string'
+            ? e.copied[0]
+            : e.copied[0]?.text || '';
+          return {
+            snippet: copiedText,
+            domain: e.domain,
+            url: e.url,
+            visitedAt: e.visitedAt
+          };
+        });
 
       // Calculate human label for last activity date
       let lastDayLabel = 'Yesterday';
@@ -279,7 +284,7 @@ export async function getAllTemplates() {
     // Convert custom templates to built-in shape
     const customAsBuiltIn = customTemplates.map(template => ({
       label: `${template.icon || '📋'} ${template.name}`,
-      type: template.type || 'auto',
+      type: 'auto', // Custom templates always run immediately
       category: 'custom',
       isCustom: true,
       id: template.id,

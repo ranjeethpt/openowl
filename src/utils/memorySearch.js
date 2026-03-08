@@ -3,6 +3,15 @@
  * No LLM involved - fast local search across 30 days of history
  */
 
+/**
+ * @typedef {import('../storage/index.js').DayLogEntry} DayLogEntry
+ */
+
+/**
+ * Extract keywords from a question for memory search
+ * @param {string} question - User's question
+ * @returns {string[]} Array of keywords and phrases
+ */
 export function extractKeywords(question) {
   const stopWords = [
     'i', 'the', 'a', 'an', 'was', 'were',
@@ -29,6 +38,12 @@ export function extractKeywords(question) {
   return [...new Set([...words, ...phrases])];
 }
 
+/**
+ * Search through all logs for entries matching keywords
+ * @param {string} question - User's question
+ * @param {() => Promise<DayLogEntry[]>} getAllLogs - Function to get all logs
+ * @returns {Promise<DayLogEntry[]>} Top 8 scored entries
+ */
 export async function searchMemory(question, getAllLogs) {
   const keywords = extractKeywords(question);
   if (keywords.length === 0) return [];
@@ -49,8 +64,7 @@ export async function searchMemory(question, getAllLogs) {
 
       // Copied match = highest value
       // User deliberately copied = important
-      if (entry.copied?.some(c =>
-        c.toLowerCase().includes(kw)))
+      if (entry.copied?.some(c => c.text.toLowerCase().includes(kw)))
         score += 15;
 
       // Content match = medium value

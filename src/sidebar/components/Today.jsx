@@ -2,101 +2,156 @@ import { useState, useEffect } from 'react';
 import { getDisplayName } from '../../content/extractors/registry.js';
 
 /**
- * Today tab - Clean, focused view of today's work
+ * Today tab - Redesigned to show interpreted meaning, not raw data
+ * Three states: First Install, Getting Started, Active
  */
 export default function Today({ onNavigateToAsk }) {
-  const [dayLog, setDayLog] = useState([]);
-  const [stats, setStats] = useState(null);
+  // State detection
+  const [appState, setAppState] = useState(null); // 'first_install', 'getting_started', 'active'
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [timelineExpanded, setTimelineExpanded] = useState(false);
-  const [showImportBanner, setShowImportBanner] = useState(false);
-  const [historyImport, setHistoryImport] = useState(null);
 
-  // LLM insight state
-  const [insightText, setInsightText] = useState(null);
-  const [insightLoading, setInsightLoading] = useState(false);
-  const [insightCached, setInsightCached] = useState(false);
+  // Data
+  const [liveEntriesCount, setLiveEntriesCount] = useState(0);
+  const [historyImportCount, setHistoryImportCount] = useState(0);
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [workHistoryEntries, setWorkHistoryEntries] = useState([]);
+  const [openTabs, setOpenTabs] = useState([]);
+  const [liveEntriesToday, setLiveEntriesToday] = useState(0);
+  const [lastActivityLog, setLastActivityLog] = useState([]);
 
+  // UI state
+  const [briefingDismissed, setBriefingDismissed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
-    loadTodayData();
-    checkHistoryImport();
-    loadInsight();
+    loadData();
+    checkBriefingDismissal();
   }, []);
 
-  async function loadTodayData() {
+  async function loadData() {
     setLoading(true);
-    setError(null);
 
     try {
-      const logResponse = await chrome.runtime.sendMessage({
-        type: 'GET_DAY_LOG'
+      // Get live entries count
+      const liveResponse = await chrome.runtime.sendMessage({
+        type: 'GET_LIVE_ENTRIES_COUNT'
       });
 
-      if (!logResponse.success) {
-        throw new Error(logResponse.error);
-      }
-
-      const statsResponse = await chrome.runtime.sendMessage({
-        type: 'GET_TODAY_STATS'
+      // Get history import count
+      const historyResponse = await chrome.runtime.sendMessage({
+        type: 'GET_HISTORY_IMPORT_COUNT'
       });
 
-      if (!statsResponse.success) {
-        throw new Error(statsResponse.error);
+      const liveCount = liveResponse.success ? liveResponse.data : 0;
+      const historyCount = historyResponse.success ? historyResponse.data : 0;
+
+      setLiveEntriesCount(liveCount);
+      setHistoryImportCount(historyCount);
+
+      // Determine state
+      let state;
+      if (liveCount === 0 && historyCount > 0) {
+        state = 'first_install';
+      } else if (liveCount === 0 && historyCount === 0) {
+        state = 'getting_started';
+      } else {
+        state = 'active';
       }
 
-      setDayLog(logResponse.data);
-      setStats(statsResponse.data);
-    } catch (err) {
-      setError(err.message);
+      setAppState(state);
+      console.log('[Today] State detected:', state, { liveCount, historyCount });
+
+      // Load data based on state
+      if (state === 'first_install') {
+        await loadFirstInstallData();
+      } else if (state === 'active') {
+        await loadActiveData();
+      }
+    } catch (error) {
+      console.error('[Today] Error loading data:', error);
     } finally {
       setLoading(false);
     }
   }
 
-  async function checkHistoryImport() {
-    try {
-      const result = await chrome.storage.local.get(['historyImport', 'historyImported']);
-      if (result.historyImported && !result.historyImport?.shown) {
-        setHistoryImport(result.historyImport);
-        setShowImportBanner(true);
-        
-        // Mark as shown so never appears again
-        await chrome.storage.local.set({
-          historyImport: { ...result.historyImport, shown: true }
-        });
-        
-        // Auto dismiss after 10 seconds
-        setTimeout(() => setShowImportBanner(false), 10000);
-      }
-    } catch (error) {
-      console.error('Error checking history import:', error);
+  async function loadFirstInstallData() {
+    // Load history import entries for display
+    const response = await chrome.runtime.sendMessage({
+      type: 'GET_HISTORY_FOR_DISPLAY',
+      data: { days: 14, limit: 30 }
+    });
+
+    if (response.success) {
+      setHistoryEntries(response.data);
     }
   }
 
-  function formatTime(ms) {
-    if (ms < 1000) return '0s';
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
+  async function loadActiveData() {
+    // Load work history (last 7 days)
+    const historyResponse = await chrome.runtime.sendMessage({
+      type: 'GET_WORK_HISTORY',
+      data: { days: 7 }
+    });
 
-    if (hours > 0) {
-      return `${hours}h ${minutes % 60}m`;
-    } else if (minutes > 0) {
-      return `${minutes}m`;
-    } else {
-      return `${seconds}s`;
+    if (historyResponse.success) {
+      setWorkHistoryEntries(historyResponse.data);
+    }
+
+    // Get open tabs
+    const tabsResponse = await chrome.runtime.sendMessage({
+      type: 'GET_TABS'
+    });
+
+    if (tabsResponse.success) {
+      setOpenTabs(tabsResponse.data || []);
+    }
+
+    // Get live entries today count for briefing condition
+    const liveTodayResponse = await chrome.runtime.sendMessage({
+      type: 'GET_LIVE_ENTRIES_TODAY_COUNT'
+    });
+
+    if (liveTodayResponse.success) {
+      setLiveEntriesToday(liveTodayResponse.data);
+    }
+
+    // Get last activity log for briefing
+    const lastActivityResponse = await chrome.runtime.sendMessage({
+      type: 'GET_LAST_ACTIVITY_LOG'
+    });
+
+    if (lastActivityResponse.success) {
+      setLastActivityLog(lastActivityResponse.data || []);
     }
   }
 
-  function formatTimestamp(timestamp) {
-    const tsNumber = Number(timestamp);
-    const date = new Date(tsNumber);
-    const isValid = !isNaN(date.getTime());
+  async function checkBriefingDismissal() {
+    const today = new Date().toISOString().split('T')[0];
+    const result = await chrome.storage.local.get(`briefing_dismissed_${today}`);
+    setBriefingDismissed(!!result[`briefing_dismissed_${today}`]);
+  }
 
-    if (!isValid) return 'Recently';
+  async function dismissBriefing() {
+    const today = new Date().toISOString().split('T')[0];
+    await chrome.storage.local.set({ [`briefing_dismissed_${today}`]: true });
+    setBriefingDismissed(true);
+  }
 
+  function handleStandupClick() {
+    if (onNavigateToAsk) {
+      onNavigateToAsk('Write my daily standup');
+    }
+  }
+
+  function handleSummaryClick() {
+    if (onNavigateToAsk) {
+      onNavigateToAsk('Give me a detailed summary of my workday');
+    }
+  }
+
+  function formatTime(timestamp) {
+    const date = new Date(timestamp);
     return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -104,453 +159,398 @@ export default function Today({ onNavigateToAsk }) {
     });
   }
 
-  async function loadInsight(forceRefresh = false) {
-    if (insightLoading) return;
+  function formatDateLabel(dateStr) {
+    const date = new Date(dateStr + 'T12:00:00');
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-    console.log('[Today] loadInsight called with forceRefresh =', forceRefresh);
-    setInsightLoading(true);
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'GENERATE_INSIGHT',
-        data: { forceRefresh }
-      });
+    if (dateStr === today) return 'Today';
+    if (dateStr === yesterday) return 'Yesterday';
 
-      console.log('[Today] GENERATE_INSIGHT response:', response);
+    const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+    const dayMonth = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-      if (!response.success) {
-        console.error('Failed to generate insight:', response.error);
-        setInsightText(null);
-        return;
-      }
+    return `${dayOfWeek}, ${dayMonth}`;
+  }
 
-      if (response.data.text) {
-        setInsightText(response.data.text);
-        setInsightCached(response.data.cached || false);
-        console.log('[Today] Insight loaded, cached =', response.data.cached);
-      } else {
-        setInsightText(null);
-      }
-    } catch (err) {
-      console.error('Error loading insight:', err);
-      setInsightText(null);
-    } finally {
-      setInsightLoading(false);
+  function formatLastActivityLabel(dateStr) {
+    if (!dateStr) return 'recently';
+
+    const date = new Date(dateStr + 'T12:00:00');
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const activityDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+    const daysAgo = Math.floor((today - activityDate) / (1000 * 60 * 60 * 24));
+
+    if (daysAgo === 1) return 'Yesterday';
+    if (daysAgo === 2 || daysAgo === 3) {
+      return date.toLocaleDateString('en-US', { weekday: 'long' });
     }
+    if (daysAgo >= 4) {
+      return date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'short'
+      });
+    }
+
+    return 'recently';
   }
 
-  function refreshInsight() {
-    // Force regenerate by bypassing cache
-    setInsightText(null);
-    setInsightCached(false);
-    loadInsight(true); // Pass forceRefresh=true
-  }
+  function getMostFrequentDomain() {
+    if (openTabs.length === 0) return null;
 
-  function getTopDomains() {
-    if (dayLog.length === 0) return { domains: [], hasTimeData: false };
-
-    const domainStats = {};
-    let totalTimeTracked = 0;
-
-    dayLog.forEach(entry => {
-      const domain = entry.domain || 'unknown';
-      if (!domainStats[domain]) {
-        domainStats[domain] = { time: 0, count: 0 };
-      }
-      domainStats[domain].time += (entry.activeTime || 0);
-      domainStats[domain].count += 1;
-      totalTimeTracked += (entry.activeTime || 0);
+    const domainCounts = {};
+    openTabs.forEach(tab => {
+      const url = new URL(tab.url);
+      const domain = url.hostname;
+      domainCounts[domain] = (domainCounts[domain] || 0) + 1;
     });
 
-    // Check if we have meaningful time data (at least 30 seconds total)
-    const hasTimeData = totalTimeTracked > 30000;
+    const entries = Object.entries(domainCounts);
+    const maxCount = Math.max(...entries.map(([_, count]) => count));
 
-    // Sort by time if we have it, otherwise by count
-    const sorted = Object.entries(domainStats)
-      .sort((a, b) => {
-        if (hasTimeData) {
-          return b[1].time - a[1].time;
-        } else {
-          return b[1].count - a[1].count;
-        }
-      })
-      .slice(0, 5)
-      .map(([domain, stats]) => ({
-        domain,
-        time: stats.time,
-        count: stats.count
-      }));
+    if (maxCount >= 3) {
+      const [domain] = entries.find(([_, count]) => count === maxCount);
+      return { domain, count: maxCount };
+    }
 
-    return { domains: sorted, hasTimeData };
+    return null;
   }
 
-  function getHourlyGroups() {
-    if (dayLog.length === 0) return [];
+  function filterEntries(entries) {
+    if (!searchQuery) return entries;
 
-    // Separate today's live entries from imported history
-    const todayEntries = dayLog.filter(e => e.source !== 'history_import' && (e.activeTime || 0) > 3000);
-    const historyEntries = dayLog.filter(e => e.source === 'history_import');
+    const query = searchQuery.toLowerCase();
+    return entries.filter(entry =>
+      entry.title?.toLowerCase().includes(query) ||
+      entry.url?.toLowerCase().includes(query) ||
+      entry.domain?.toLowerCase().includes(query)
+    );
+  }
 
+  function groupEntriesByDate(entries) {
     const groups = {};
 
-    // Group today's entries by hour
-    todayEntries.forEach(entry => {
-      const tsNumber = Number(entry.visitedAt);
-      const date = new Date(tsNumber);
-      if (isNaN(date.getTime())) return;
-
-      const hour = date.getHours();
-      const key = `today-${hour}`;
-      if (!groups[key]) {
-        groups[key] = { type: 'hour', hour, entries: [] };
+    entries.forEach(entry => {
+      const dateKey = entry.date;
+      if (!groups[dateKey]) {
+        groups[dateKey] = [];
       }
-      groups[key].entries.push(entry);
+      groups[dateKey].push(entry);
     });
 
-    // Group history entries by original date
-    const historyByDate = {};
-    historyEntries.forEach(entry => {
-      const dateKey = entry.originalDate || entry.date;
-      if (!historyByDate[dateKey]) {
-        historyByDate[dateKey] = [];
-      }
-      historyByDate[dateKey].push(entry);
-    });
+    // Sort dates descending
+    const sortedDates = Object.keys(groups).sort().reverse();
 
-    // Add history groups (sorted by date descending)
-    Object.entries(historyByDate)
-      .sort((a, b) => b[0].localeCompare(a[0])) // Most recent date first
-      .forEach(([dateStr, entries]) => {
-        groups[`history-${dateStr}`] = {
-          type: 'date',
-          date: dateStr,
-          entries: entries.slice(0, 10) // Limit to 10 per date to avoid overwhelming
-        };
-      });
-
-    // Sort: today's hours first (most recent), then history dates
-    return Object.entries(groups)
-      .sort((a, b) => {
-        const [keyA, groupA] = a;
-        const [keyB, groupB] = b;
-
-        if (groupA.type === 'hour' && groupB.type === 'hour') {
-          return parseInt(groupB.hour) - parseInt(groupA.hour);
-        }
-        if (groupA.type === 'hour') return -1; // Today first
-        if (groupB.type === 'hour') return 1;
-
-        // Both history - sort by date descending
-        return groupB.date.localeCompare(groupA.date);
-      })
-      .map(([key, group]) => {
-        if (group.type === 'hour') {
-          const h = group.hour;
-          const ampm = h >= 12 ? 'PM' : 'AM';
-          const displayHour = h % 12 || 12;
-          return { hour: `${displayHour}:00 ${ampm}`, entries: group.entries };
-        } else {
-          // Format date nicely
-          const date = new Date(group.date + 'T12:00:00');
-          const today = new Date().toISOString().split('T')[0];
-          const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-
-          let label;
-          if (group.date === today) {
-            label = 'Today';
-          } else if (group.date === yesterday) {
-            label = 'Yesterday';
-          } else {
-            label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          }
-
-          return { hour: label, entries: group.entries };
-        }
-      });
+    return sortedDates.map(date => ({
+      date,
+      label: formatDateLabel(date),
+      entries: groups[date].sort((a, b) => (b.visitedAt || 0) - (a.visitedAt || 0))
+    }));
   }
 
-  function handleQuickAction(type) {
-    let prompt;
-    switch (type) {
-      case 'standup':
-        prompt = 'Write my daily standup based on everything I worked on today. Format:\nYesterday: [what I did]\nToday: [what I plan to do]\nBlockers: [any blockers or None]';
-        break;
-      case 'summary':
-        prompt = 'Give me a detailed summary of my workday based on my browsing history. What did I achieve? What were the main themes? Group by activity type.';
-        break;
-      case 'focus':
-        prompt = 'Based on my open tabs and what I\'ve worked on today, what should I focus on right now? Be specific and reference what you can see.';
-        break;
-      default:
-        prompt = '';
-    }
+  function shouldShowBriefing() {
+    return (
+      appState === 'active' &&
+      lastActivityLog.length > 0 &&
+      liveEntriesToday < 3 &&
+      !briefingDismissed
+    );
+  }
 
-    // Navigate to Ask tab with prompt
-    if (onNavigateToAsk) {
-      onNavigateToAsk(prompt);
-    }
+  function openUrl(url) {
+    chrome.tabs.create({ url });
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-gray-500">Loading today's activity...</div>
+        <div className="text-gray-500">Loading...</div>
       </div>
     );
   }
 
-  if (error) {
+  // STATE 2: Getting Started
+  if (appState === 'getting_started') {
     return (
-      <div className="p-4">
-        <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700">
-          Error: {error}
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+        <div className="text-6xl mb-4">🦉</div>
+        <h2 className="text-xl font-semibold text-gray-800 mb-2">
+          OpenOwl is ready
+        </h2>
+        <p className="text-gray-600 text-sm max-w-md mb-6">
+          Browse normally and come back. Your standup and history will build up through the day.
+        </p>
+        <button
+          onClick={handleStandupClick}
+          className="text-sm px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
+        >
+          ✍️ Write standup
+        </button>
+      </div>
+    );
+  }
+
+  // STATE 1: First Install
+  if (appState === 'first_install') {
+    const displayEntries = showMore ? historyEntries : historyEntries.slice(0, 30);
+    const groupedEntries = groupEntriesByDate(displayEntries);
+
+    return (
+      <div className="flex flex-col h-full overflow-hidden bg-white">
+        <div className="flex-1 overflow-y-auto">
+          {/* Import Celebration Card */}
+          <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 border-b border-blue-100">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              Ready from day one
+            </h2>
+            <p className="text-gray-700 mb-4 leading-relaxed">
+              We found <span className="font-semibold">{historyImportCount} pages</span> from your last 30 days.
+              OpenOwl already knows what you have been working on.
+            </p>
+            <button
+              onClick={handleStandupClick}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition shadow-sm"
+            >
+              ✍️ Write my first standup
+            </button>
+          </div>
+
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500 text-center">
+              OpenOwl gets richer as you browse today.
+            </p>
+          </div>
+
+          {/* Recent Work */}
+          <div className="px-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-semibold text-gray-800">Recent Work</h3>
+              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                imported
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {groupedEntries.map(group => (
+                <div key={group.date}>
+                  <div className="text-xs font-semibold text-gray-500 mb-2">
+                    {group.label}
+                  </div>
+                  <div className="space-y-1">
+                    {group.entries.map((entry, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => openUrl(entry.url)}
+                        className="px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded cursor-pointer transition"
+                      >
+                        <div className="text-sm text-gray-800 truncate mb-1">
+                          {entry.title}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <span>{formatTime(entry.visitedAt)}</span>
+                          <span>•</span>
+                          <span className="truncate">{getDisplayName(entry.domain)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {!showMore && historyEntries.length > 30 && (
+                <button
+                  onClick={() => setShowMore(true)}
+                  className="w-full py-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Show more
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (!stats || dayLog.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-        <img
-          src="/icons/icon128.png"
-          alt="OpenOwl"
-          className="w-24 h-24 mb-4"
-        />
-        <h2 className="text-xl font-semibold text-gray-700 mb-2">
-          No activity yet today
-        </h2>
-        <p className="text-gray-500 text-sm max-w-md">
-          OpenOwl is tracking your browsing activity. As you work, you'll see
-          your visited pages, time spent, and insights appear here.
-        </p>
-      </div>
-    );
-  }
-
-  const topDomainsResult = getTopDomains();
-  const topDomains = topDomainsResult.domains;
-  const hasTimeData = topDomainsResult.hasTimeData;
-  const maxValue = hasTimeData
-    ? (topDomains[0]?.time || 1)
-    : (topDomains[0]?.count || 1);
-  const hourlyGroups = getHourlyGroups();
+  // STATE 3: Active
+  const mostFrequentDomain = getMostFrequentDomain();
+  const filteredEntries = filterEntries(workHistoryEntries);
+  const groupedEntries = groupEntriesByDate(filteredEntries);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
-      {/* History Import Banner (one-time) */}
-      {showImportBanner && historyImport && (
-        <div className="flex-shrink-0 mx-4 mt-3 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-3 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-2">
-            <span className="text-base">📦</span>
-            <p className="text-xs text-gray-800 font-medium">
-              Imported {historyImport.entriesImported} items from your recent work history.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowImportBanner(false)}
-            className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-blue-100 transition-colors"
-            title="Dismiss"
-          >
-            <span className="text-xs">✕</span>
-          </button>
-        </div>
-      )}
-
       <div className="flex-1 overflow-y-auto">
-        {/* Section 1: Today's Insight (LLM-powered) */}
-      {(insightText || insightLoading || dayLog.length > 0) && (
-        <div className="p-4 bg-owl-blue/5 border-b border-owl-blue/10">
-          <div className="flex items-center justify-between mb-0.5">
-            <h2 className="font-semibold text-gray-900">
-              Your Work Patterns
-            </h2>
+        {/* Morning Briefing Card */}
+        {shouldShowBriefing() && (() => {
+          const lastActivityDate = lastActivityLog[0]?.date;
+          const lastActivityLabel = formatLastActivityLabel(lastActivityDate);
+
+          return (
+            <div className="m-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">☀️</span>
+                  <h3 className="text-sm font-semibold text-gray-800">
+                    Welcome back
+                  </h3>
+                </div>
+                <button
+                  onClick={dismissBriefing}
+                  className="text-gray-400 hover:text-gray-600 text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="text-sm text-gray-700 mb-3">
+                You worked on <span className="font-medium">{lastActivityLabel}</span>. Want a quick recap?
+              </p>
+              <button
+                onClick={handleStandupClick}
+                className="text-sm px-4 py-2 bg-amber-100 hover:bg-amber-200 text-gray-800 rounded transition"
+              >
+                ✍️ Show me
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* Right Now Card */}
+        {openTabs.length > 0 ? (
+          <div className="m-4 p-4 bg-blue-50 border border-blue-100 rounded-lg">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">💻</span>
+              <h3 className="text-sm font-semibold text-gray-800">Right now</h3>
+            </div>
+            <p className="text-sm text-gray-700 mb-4">
+              {mostFrequentDomain ? (
+                <>
+                  <span className="font-medium">{openTabs.length} tabs</span> open,
+                  mostly <span className="font-medium">{getDisplayName(mostFrequentDomain.domain)}</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-medium">{openTabs.length} tabs</span> open
+                </>
+              )}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleStandupClick}
+                className="flex-1 text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
+              >
+                ✍️ Write standup
+              </button>
+              <button
+                onClick={handleSummaryClick}
+                className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
+              >
+                📊 Day summary
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="m-4 flex gap-2">
             <button
-              onClick={refreshInsight}
-              disabled={insightLoading}
-              className="text-gray-400 hover:text-owl-blue transition-colors text-sm disabled:opacity-50"
-              title={insightCached ? "Refresh insight (cached)" : "Refresh insight"}
+              onClick={handleStandupClick}
+              className="flex-1 text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
             >
-              {insightLoading ? '⏳' : '🔄'}
+              ✍️ Write standup
+            </button>
+            <button
+              onClick={handleSummaryClick}
+              className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
+            >
+              📊 Day summary
             </button>
           </div>
-          <p className="text-xs text-gray-500 mb-3">
-            {new Date().toLocaleDateString('en-AU', {
-              weekday: 'long',
-              day: 'numeric',
-              month: 'long'
-            })}
-          </p>
-
-          <div className="bg-white border border-owl-blue/10 rounded-lg p-4 shadow-sm">
-            {insightLoading ? (
-              <div className="flex items-center gap-3 text-gray-500">
-                <div className="animate-spin text-xl">⚙️</div>
-                <span className="text-sm">Analyzing your activity...</span>
-              </div>
-            ) : insightText ? (
-              <>
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                  {insightText}
-                </p>
-                {stats && stats.totalActiveTime > 0 && (
-                  <div className="mt-3 flex gap-4 text-xs text-gray-500 pt-3 border-t border-gray-100">
-                    <span>📊 {stats.totalVisits} visits</span>
-                    <span>⏱️ {formatTime(stats.totalActiveTime)} active</span>
-                    <span>📄 {stats.uniquePages} unique pages</span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center py-2">
-                <p className="text-sm text-gray-500">
-                  Start browsing to see insights about your work patterns...
-                </p>
-              </div>
-            )}
-          </div>
-
-        </div>
-      )}
-
-      {/* Section 2: Quick Actions */}
-      <div className="p-4 border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">
-          Quick Actions
-        </h3>
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            onClick={() => handleQuickAction('standup')}
-            className="bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
-          >
-            ✍️ Write standup
-          </button>
-          <button
-            onClick={() => handleQuickAction('summary')}
-            className="bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
-          >
-            📊 Day summary
-          </button>
-          <button
-            onClick={() => handleQuickAction('focus')}
-            className="bg-gray-100 hover:bg-owl-blue/10 text-gray-700 text-xs py-2 px-3 rounded transition"
-          >
-            🎯 What to focus on?
-          </button>
-        </div>
-      </div>
-
-      {/* Section 3: Stats Row */}
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center justify-around text-center">
-          <div>
-            <div className="text-2xl font-bold text-gray-800">
-              {stats.totalVisits}
-            </div>
-            <div className="text-xs text-gray-500">visits</div>
-          </div>
-          <div className="w-px h-10 bg-gray-200"></div>
-          <div>
-            <div className="text-2xl font-bold text-gray-800">
-              {stats.uniquePages}
-            </div>
-            <div className="text-xs text-gray-500">pages</div>
-          </div>
-          <div className="w-px h-10 bg-gray-200"></div>
-          <div>
-            <div className="text-2xl font-bold text-gray-800">
-              {formatTime(stats.totalActiveTime)}
-            </div>
-            <div className="text-xs text-gray-500">active</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Section 3: Top Domains */}
-      {topDomains.length > 0 && (
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            {hasTimeData ? 'Top Domains by Time' : 'Top Domains by Visits'}
-          </h3>
-          <div className="space-y-2">
-            {topDomains.map((item, i) => {
-              const value = hasTimeData ? item.time : item.count;
-              const barWidth = Math.round((value / maxValue) * 100);
-              return (
-                <div key={i}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-gray-700 truncate flex-1">
-                      {getDisplayName(item.domain)}
-                    </span>
-                    <span className="text-gray-500 ml-2">
-                      {hasTimeData ? formatTime(item.time) : `${item.count} visits`}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div
-                      className="bg-owl-blue h-1.5 rounded-full transition-all"
-                      style={{ width: `${barWidth}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Section 4: Timeline (Collapsed by default) */}
-      <div className="p-4 border-b border-gray-200">
-        <button
-          onClick={() => setTimelineExpanded(!timelineExpanded)}
-          className="w-full flex items-center justify-between text-sm font-semibold text-gray-700 hover:text-gray-900"
-        >
-          <span>Full Timeline</span>
-          <span>{timelineExpanded ? '▲' : '▼'}</span>
-        </button>
-
-        {timelineExpanded && (
-          <div className="mt-3 space-y-3">
-            {hourlyGroups.map((group, i) => (
-              <details key={i} className="group border border-gray-100 rounded-lg overflow-hidden">
-                <summary className="cursor-pointer list-none bg-gray-50 p-2.5 flex items-center justify-between hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-700">
-                      {group.hour}
-                    </span>
-                    <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full">
-                      {group.entries.length} visits
-                    </span>
-                  </div>
-                  <span className="text-xs text-gray-400 group-open:rotate-90 transition-transform">
-                    ▶
-                  </span>
-                </summary>
-                <div className="bg-white divide-y divide-gray-50">
-                  {group.entries.map((entry, j) => (
-                    <div
-                      key={j}
-                      className="px-3 py-2 hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="text-xs font-medium text-gray-800 truncate mb-0.5">
-                        {entry.title}
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="text-[10px] text-gray-400 truncate flex-1">
-                          {getDisplayName(entry.domain)} • {formatTimestamp(entry.visitedAt)}
-                        </div>
-                        <div className="text-[10px] font-mono text-gray-400 ml-2">
-                          {formatTime(entry.activeTime)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ))}
-          </div>
         )}
-      </div>
 
+        {/* Work History Section */}
+        <div className="px-4 pb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800">Work History</h3>
+            <div className="relative flex-1 max-w-xs ml-4">
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full text-xs px-3 py-1.5 border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
+          {filteredEntries.length === 0 ? (
+            <div className="text-center py-8 text-gray-500 text-sm">
+              {searchQuery ? 'No matches for your query' : 'No work history yet'}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {groupedEntries.map(group => (
+                <div key={group.date}>
+                  <div className="text-xs font-semibold text-gray-500 mb-2">
+                    {group.label}
+                  </div>
+                  <div className="space-y-1">
+                    {group.entries.map((entry, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => openUrl(entry.url)}
+                        className={`px-3 py-2 rounded cursor-pointer transition ${
+                          entry.source === 'history_import'
+                            ? 'bg-gray-50 hover:bg-gray-100'
+                            : 'bg-white hover:bg-gray-50 border border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-gray-800 truncate mb-1">
+                              {entry.title}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <span>{formatTime(entry.visitedAt)}</span>
+                              <span>•</span>
+                              <span className="truncate">{getDisplayName(entry.domain)}</span>
+                              {entry.source === 'history_import' && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-gray-400">imported</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {entry.copied && entry.copied.length > 0 && (
+                            <span className="text-xs">📋</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {groupedEntries.length > 0 && !showMore && (
+                <button
+                  onClick={() => setShowMore(true)}
+                  className="w-full py-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Load more
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

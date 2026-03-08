@@ -84,6 +84,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleGenerateInsight(message.data, sendResponse);
       return true; // Async response
 
+    case 'GET_RECENT_DAY_WITH_ACTIVITY':
+      handleGetRecentDayWithActivity(sendResponse);
+      return true; // Async response
+
+    case 'GET_LIVE_ENTRIES_COUNT':
+      handleGetLiveEntriesCount(sendResponse);
+      return true; // Async response
+
+    case 'GET_HISTORY_IMPORT_COUNT':
+      handleGetHistoryImportCount(sendResponse);
+      return true; // Async response
+
+    case 'GET_HISTORY_FOR_DISPLAY':
+      handleGetHistoryForDisplay(message.data, sendResponse);
+      return true; // Async response
+
+    case 'GET_WORK_HISTORY':
+      handleGetWorkHistory(message.data, sendResponse);
+      return true; // Async response
+
+    case 'GET_TABS':
+      handleGetTabs(sendResponse);
+      return true; // Async response
+
+    case 'GET_LAST_ACTIVITY_DATE':
+      handleGetLastActivityDate(sendResponse);
+      return true; // Async response
+
+    case 'GET_LIVE_ENTRIES_TODAY_COUNT':
+      handleGetLiveEntriesTodayCount(sendResponse);
+      return true; // Async response
+
+    case 'GET_LAST_ACTIVITY_LOG':
+      handleGetLastActivityLog(sendResponse);
+      return true; // Async response
+
     default:
       console.warn('Unknown message type:', message.type);
       sendResponse({ error: 'Unknown message type' });
@@ -461,12 +497,18 @@ async function handleAskAI(data, sendResponse) {
         ollamaUrl: settings.ollamaUrl
       });
 
+      // Calculate estimated tokens from template data
+      const estimatedTokens = templateData.estimatedTokens ||
+                             (system?.length ? Math.round(system.length / 4) : 0);
+
       sendResponse({
         success: true,
         data: {
           text,
           templateUsed: key,
-          context: summarizeContext(templateData)
+          context: {
+            estimatedTokens
+          }
         }
       });
       return;
@@ -499,10 +541,6 @@ async function handleAskAI(data, sendResponse) {
       data: {
         text,
         context: {
-          tabsUsed: context.tabsUsed,
-          totalTabs: context.totalTabs,
-          historyEntries: context.historyEntries,
-          questionType: context.questionType,
           estimatedTokens: context.estimatedTokens
         }
       }
@@ -511,21 +549,6 @@ async function handleAskAI(data, sendResponse) {
     console.error('Error asking AI:', error);
     sendResponse({ success: false, error: error.message });
   }
-}
-
-/**
- * Summarize context for UI display
- */
-function summarizeContext(data) {
-  const keys = Object.keys(data);
-  const summary = {};
-
-  if (data.todayLog) summary.todayEntries = data.todayLog.length;
-  if (data.yesterdayLog) summary.yesterdayEntries = data.yesterdayLog.length;
-  if (data.matches) summary.matchesFound = data.matches.length;
-  if (data.tabs) summary.tabsUsed = data.tabs.length;
-
-  return summary;
 }
 
 /**
@@ -568,8 +591,13 @@ async function handleLogCopy(data, sendResponse) {
       .find(e => e.url === url);
 
     if (entry?.id) {
+      const copiedSnippet = {
+        text: snippet,
+        timestamp: Date.now()
+      };
+
       await storage.updateEntry(entry.id, {
-        copied: [...(entry.copied || []), snippet]
+        copied: [...(entry.copied || []), copiedSnippet]
       });
     }
 
@@ -665,6 +693,27 @@ async function handleGenerateInsight(data, sendResponse) {
     });
   } catch (error) {
     console.error('Error generating insight:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get most recent day with activity (excluding today)
+ */
+async function handleGetRecentDayWithActivity(sendResponse) {
+  try {
+    const entries = await storage.getLastActivityLog();
+    const date = entries.length > 0 ? entries[0].date : null;
+
+    sendResponse({
+      success: true,
+      data: {
+        entries,
+        date
+      }
+    });
+  } catch (error) {
+    console.error('Error getting recent day with activity:', error);
     sendResponse({ success: false, error: error.message });
   }
 }
@@ -980,6 +1029,133 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.tabs.onActivated.addListener(() => {
   notifyTabsChanged();
 });
+
+// ============================================
+// Today Tab Redesign Handlers
+// ============================================
+
+/**
+ * Get count of live entries (not history_import)
+ */
+async function handleGetLiveEntriesCount(sendResponse) {
+  try {
+    const entries = await storage.getLiveEntries();
+    sendResponse({ success: true, data: entries.length });
+  } catch (error) {
+    console.error('Error getting live entries count:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get count of history import entries
+ */
+async function handleGetHistoryImportCount(sendResponse) {
+  try {
+    const entries = await storage.getHistoryImportEntries();
+    sendResponse({ success: true, data: entries.length });
+  } catch (error) {
+    console.error('Error getting history import count:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get history for display (first install state)
+ */
+async function handleGetHistoryForDisplay(data, sendResponse) {
+  try {
+    const { days = 14, limit = 30 } = data || {};
+    const entries = await storage.getEntriesForHistory(days);
+
+    // Filter for history_import only
+    const historyEntries = entries.filter(e => e.source === 'history_import');
+
+    // Sort by date descending
+    historyEntries.sort((a, b) => (b.visitedAt || 0) - (a.visitedAt || 0));
+
+    sendResponse({ success: true, data: historyEntries });
+  } catch (error) {
+    console.error('Error getting history for display:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get work history (active state)
+ */
+async function handleGetWorkHistory(data, sendResponse) {
+  try {
+    const { days = 7 } = data || {};
+    const entries = await storage.getEntriesForHistory(days);
+
+    sendResponse({ success: true, data: entries });
+  } catch (error) {
+    console.error('Error getting work history:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get open tabs (simplified for Today tab)
+ */
+async function handleGetTabs(sendResponse) {
+  try {
+    const tabs = await chrome.tabs.query({});
+
+    // Filter out chrome:// and extension pages
+    const filteredTabs = tabs.filter(tab => {
+      const url = tab.url || '';
+      return !url.startsWith('chrome://') &&
+             !url.startsWith('chrome-extension://') &&
+             !url.startsWith('about:');
+    });
+
+    sendResponse({ success: true, data: filteredTabs });
+  } catch (error) {
+    console.error('Error getting tabs:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get last activity date (for morning briefing)
+ */
+async function handleGetLastActivityDate(sendResponse) {
+  try {
+    const date = await storage.getLastActivityDate();
+    sendResponse({ success: true, data: date });
+  } catch (error) {
+    console.error('Error getting last activity date:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get live entries today count (for briefing session check)
+ */
+async function handleGetLiveEntriesTodayCount(sendResponse) {
+  try {
+    const entries = await storage.getLiveEntriesToday();
+    sendResponse({ success: true, data: entries.length });
+  } catch (error) {
+    console.error('Error getting live entries today count:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Get last activity log (for briefing)
+ */
+async function handleGetLastActivityLog(sendResponse) {
+  try {
+    const entries = await storage.getLastActivityLog();
+    sendResponse({ success: true, data: entries });
+  } catch (error) {
+    console.error('Error getting last activity log:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
 
 // ============================================
 // Periodic Cleanup
