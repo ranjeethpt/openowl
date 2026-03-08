@@ -230,7 +230,13 @@ function Ask({ messages, onMessagesChange }) {
       // Clear messages FIRST → fresh context
       onMessagesChange([]);
       // Then run template
-      askAI(template.label);
+      // For custom templates, use userInstructions if provided, otherwise use a default prompt
+      let userPrompt = template.label;
+      if (template.isCustom) {
+        const instructions = template.promptConfig?.userInstructions?.trim();
+        userPrompt = instructions || 'Summarize this activity';
+      }
+      askAI(userPrompt);
       return;
     }
 
