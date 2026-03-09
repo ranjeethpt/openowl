@@ -8,7 +8,7 @@ import Today from './components/Today';
  * Handles routing between different views
  */
 function App() {
-  const [currentView, setCurrentView] = useState('settings');
+  const [currentView, setCurrentView] = useState('ask'); // Start on Ask tab
   const [isConfigured, setIsConfigured] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState([]);
@@ -57,9 +57,7 @@ function App() {
         const configured = hasApiKey || (isOllama && !!data.ollamaUrl);
 
         setIsConfigured(configured);
-        if (configured) {
-          setCurrentView('ask');
-        }
+        // Don't force navigation - stay on Ask tab by default
       }
     } catch (error) {
       console.error('Error checking configuration:', error);
@@ -98,22 +96,18 @@ function App() {
 
         {/* Navigation Tabs */}
         <nav className="flex space-x-1">
-          {isConfigured && (
-            <>
-              <TabButton
-                active={currentView === 'ask'}
-                onClick={() => setCurrentView('ask')}
-              >
-                Ask
-              </TabButton>
-              <TabButton
-                active={currentView === 'today'}
-                onClick={() => setCurrentView('today')}
-              >
-                Today
-              </TabButton>
-            </>
-          )}
+          <TabButton
+            active={currentView === 'ask'}
+            onClick={() => setCurrentView('ask')}
+          >
+            Ask
+          </TabButton>
+          <TabButton
+            active={currentView === 'today'}
+            onClick={() => setCurrentView('today')}
+          >
+            Today
+          </TabButton>
           <TabButton
             active={currentView === 'settings'}
             onClick={() => setCurrentView('settings')}
@@ -131,6 +125,7 @@ function App() {
               messages={chatMessages}
               onMessagesChange={setChatMessages}
               onNavigateToSettings={() => setCurrentView('settings')}
+              isConfigured={isConfigured}
             />
           )}
           {currentView === 'today' && (
