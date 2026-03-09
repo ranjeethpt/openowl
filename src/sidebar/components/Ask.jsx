@@ -5,7 +5,7 @@ import { getPrompt } from '../../prompts/registry.js';
 /**
  * Ask component - AI chat with browser context awareness + templates
  */
-function Ask({ messages, onMessagesChange, onNavigateToSettings }) {
+function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -331,6 +331,12 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings }) {
    * Handle template click with clearing strategy
    */
   function handleTemplateClick(template) {
+    // Don't allow running templates without API key
+    if (!isConfigured) {
+      showToast('Add API key in Settings to send directly', true);
+      return;
+    }
+
     if (template.type === 'auto') {
       // Clear messages FIRST → fresh context
       onMessagesChange([]);
@@ -373,6 +379,24 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings }) {
 
   return (
     <div className="flex flex-col h-full" style={{ overflow: 'hidden' }}>
+      {/* API Key Banner - only show when not configured */}
+      {!isConfigured && (
+        <div className="px-4 py-3 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-300 flex items-center justify-between flex-shrink-0 shadow-sm">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-base">✨</span>
+            <span className="text-sm font-medium text-gray-800">
+              Add an API key to get AI responses inline
+            </span>
+          </div>
+          <button
+            onClick={onNavigateToSettings}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded transition-colors shadow-sm"
+          >
+            Add API Key →
+          </button>
+        </div>
+      )}
+
       {/* Context Info */}
       <div className="px-4 py-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -424,16 +448,22 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings }) {
                   <div key={t.label} className="flex flex-col gap-1">
                     <button
                       onClick={() => handleTemplateClick(t)}
-                      className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
+                      disabled={!isConfigured}
+                      className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                        isConfigured
+                          ? 'bg-gray-100 hover:bg-owl-blue/10 text-gray-700'
+                          : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      }`}
+                      title={!isConfigured ? 'Add API key to use' : ''}
                     >
                       {t.label}
                     </button>
                     {t.copyable && (
                       <button
                         onClick={() => handleCopyPrompt(t)}
-                        className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                        className="px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded font-medium transition-colors"
                       >
-                        Copy prompt
+                        📋 Copy prompt
                       </button>
                     )}
                   </div>
@@ -600,16 +630,37 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings }) {
           disabled={loading}
         />
         <button
-          className={`mt-2 px-4 py-2 rounded-lg w-full font-medium transition-colors ${
-            loading || !input.trim()
+          className={`mt-2 px-4 py-2 rounded-lg w-full font-medium transition-colors flex items-center justify-center gap-2 ${
+            !isConfigured
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              : 'bg-owl-blue text-white hover:bg-owl-blue/90'
+              : loading || !input.trim()
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-owl-blue text-white hover:bg-owl-blue/90'
           }`}
-          onClick={() => askAI(input)}
-          disabled={loading || !input.trim()}
+          onClick={() => {
+            if (isConfigured) {
+              askAI(input);
+            } else {
+              showToast('Add API key in Settings to send directly', true);
+            }
+          }}
+          disabled={!isConfigured || loading || !input.trim()}
+          title={!isConfigured ? 'Add API key in Settings to send directly' : ''}
         >
-          {loading ? 'Thinking...' : 'Ask'}
+          {loading ? (
+            'Thinking...'
+          ) : (
+            <>
+              {!isConfigured && <span className="text-lg">🔒</span>}
+              <span>Ask</span>
+            </>
+          )}
         </button>
+        {!isConfigured && (
+          <p className="text-xs text-gray-500 mt-2 text-center">
+            💡 Use <span className="font-semibold">Copy prompt</span> on quick actions to paste into any AI chat
+          </p>
+        )}
       </div>
 
       {/* Toast notification */}
