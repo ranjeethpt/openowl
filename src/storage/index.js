@@ -139,6 +139,19 @@ export async function getPreferences() {
 // ============================================
 
 /**
+ * Convert timestamp to local date string (YYYY-MM-DD)
+ * @param {number} timestamp - Unix timestamp in milliseconds
+ * @returns {string} Date string in YYYY-MM-DD format using local timezone
+ */
+function toLocalDateString(timestamp) {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Save a day log entry to IndexedDB
  * Checks for duplicates within configured time window
  * @param {Object} entry - DayLog entry object
@@ -146,7 +159,7 @@ export async function getPreferences() {
  */
 export async function saveDayLogEntry(entry) {
   const db = await initDB();
-  const date = new Date(entry.visitedAt).toISOString().split('T')[0]; // YYYY-MM-DD
+  const date = toLocalDateString(entry.visitedAt); // Use local timezone
   const prefs = await getPreferences();
 
   // Check for duplicate within configured window
@@ -197,9 +210,8 @@ export async function getDayLog(date) {
   const db = await initDB();
 
   if (!date) {
-    // Return all entries from today onwards (including those with future dates if any, or just today's)
-    // Actually, normally it's just today.
-    date = new Date().toISOString().split('T')[0];
+    // Use local timezone for today's date
+    date = toLocalDateString(Date.now());
   }
 
   const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
@@ -243,9 +255,9 @@ export async function getAllLogs() {
  * @returns {Promise<Array>}
  */
 export async function getYesterdayLog() {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const date = yesterday.toISOString().split('T')[0];
+  const now = Date.now();
+  const yesterday = now - (24 * 60 * 60 * 1000); // Subtract 24 hours
+  const date = toLocalDateString(yesterday);
   return getDayLog(date);
 }
 
@@ -291,9 +303,9 @@ export async function updateEntry(id, updates) {
  * @returns {Promise<number>} Number of deleted entries
  */
 export async function cleanupOldEntries(daysToKeep = 30) {
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-  const cutoff = cutoffDate.toISOString().split('T')[0];
+  const now = Date.now();
+  const cutoffTimestamp = now - (daysToKeep * 24 * 60 * 60 * 1000);
+  const cutoff = toLocalDateString(cutoffTimestamp);
 
   const db = await initDB();
   const tx = db.transaction(DAY_LOGS_STORE, 'readwrite');
@@ -468,7 +480,7 @@ export async function getLastActivityLog() {
   const tx = db.transaction(DAY_LOGS_STORE, 'readonly');
   const index = tx.store.index('date');
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = toLocalDateString(Date.now());
 
   // Get all entries, sorted by date descending
   const allEntries = await tx.store.getAll();
@@ -545,24 +557,23 @@ export async function getLastActivityDate() {
  * @returns {Promise<Array>} Entries from current week
  */
 export async function getWeekLog() {
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const now = Date.now();
+  const todayStr = toLocalDateString(now);
 
-  // Calculate Monday of current week
+  // Calculate Monday of current week using local date
+  const today = new Date();
   const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
   const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - daysFromMonday);
-  const mondayStr = monday.toISOString().split('T')[0];
+  const mondayTimestamp = now - (daysFromMonday * 24 * 60 * 60 * 1000);
+  const mondayStr = toLocalDateString(mondayTimestamp);
 
   // Get entries from Monday to today
   const entries = await getLogRange(mondayStr, todayStr);
 
   // If nothing found this week, fall back to last 7 days
   if (entries.length === 0) {
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 7);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+    const sevenDaysAgoTimestamp = now - (7 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgoStr = toLocalDateString(sevenDaysAgoTimestamp);
 
     return getLogRange(sevenDaysAgoStr, todayStr);
   }
@@ -711,51 +722,46 @@ export async function getEntriesForRange(timeRange) {
       return [];
     }
 
+    const now = Date.now();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    let startDate, endDate;
+    const todayMidnight = today.getTime();
+
+    let startTimestamp, endTimestamp;
 
     switch (timeRange.type) {
       case 'today':
-        startDate = new Date(today);
-        endDate = new Date();
+        startTimestamp = todayMidnight;
+        endTimestamp = now;
         break;
 
       case 'yesterday':
-        startDate = new Date(today);
-        startDate.setDate(startDate.getDate() - 1);
-        endDate = new Date(today);
-        endDate.setMilliseconds(-1);
+        startTimestamp = todayMidnight - (24 * 60 * 60 * 1000);
+        endTimestamp = todayMidnight - 1;
         break;
 
       case 'last_n_days':
         const n = timeRange.n || 7;
-        startDate = new Date(today);
-        startDate.setDate(startDate.getDate() - n);
-        endDate = new Date();
+        startTimestamp = todayMidnight - (n * 24 * 60 * 60 * 1000);
+        endTimestamp = now;
         break;
 
       case 'this_week':
-        // Monday of current week to today
+        // Monday of current week to now
         const dayOfWeek = today.getDay();
         const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-        startDate = new Date(today);
-        startDate.setDate(today.getDate() - daysFromMonday);
-        endDate = new Date();
+        startTimestamp = todayMidnight - (daysFromMonday * 24 * 60 * 60 * 1000);
+        endTimestamp = now;
         break;
 
       case 'last_week':
         // Monday to Sunday of last week
-        const lastWeekEnd = new Date(today);
         const daysSinceMonday = today.getDay() === 0 ? 6 : today.getDay() - 1;
-        lastWeekEnd.setDate(today.getDate() - daysSinceMonday - 1); // Last Sunday
-        lastWeekEnd.setHours(23, 59, 59, 999);
+        const lastSundayMidnight = todayMidnight - (daysSinceMonday * 24 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000);
+        const lastMondayMidnight = lastSundayMidnight - (6 * 24 * 60 * 60 * 1000);
 
-        startDate = new Date(lastWeekEnd);
-        startDate.setDate(lastWeekEnd.getDate() - 6); // Last Monday
-        startDate.setHours(0, 0, 0, 0);
-
-        endDate = lastWeekEnd;
+        startTimestamp = lastMondayMidnight;
+        endTimestamp = lastSundayMidnight + (24 * 60 * 60 * 1000) - 1; // End of last Sunday
         break;
 
       default:
@@ -765,10 +771,9 @@ export async function getEntriesForRange(timeRange) {
     // Get all entries from IndexedDB
     const allEntries = await getAllLogs();
 
-    // Filter by date range
+    // Filter by timestamp range
     const filtered = allEntries.filter(entry => {
-      const entryDate = new Date(entry.visitedAt);
-      return entryDate >= startDate && entryDate <= endDate;
+      return entry.visitedAt >= startTimestamp && entry.visitedAt <= endTimestamp;
     });
 
     return filtered;
@@ -894,7 +899,7 @@ export async function getLiveEntries() {
  */
 export async function getLiveEntriesToday() {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = toLocalDateString(Date.now());
     const entries = await getDayLog(today);
 
     return entries.filter(entry => entry.source !== 'history_import');
@@ -929,15 +934,13 @@ export async function getHistoryImportEntries() {
  */
 export async function getEntriesForHistory(days = 7) {
   try {
+    const now = Date.now();
     const today = new Date();
     today.setHours(23, 59, 59, 999);
+    const endDateStr = toLocalDateString(now);
 
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - days);
-    startDate.setHours(0, 0, 0, 0);
-
-    const startDateStr = startDate.toISOString().split('T')[0];
-    const endDateStr = today.toISOString().split('T')[0];
+    const startTimestamp = now - (days * 24 * 60 * 60 * 1000);
+    const startDateStr = toLocalDateString(startTimestamp);
 
     const entries = await getLogRange(startDateStr, endDateStr);
 

@@ -1029,10 +1029,19 @@ async function importChromeHistory(daysBack) {
 
   console.log(`[History Import] Filtered to ${filtered.length} items`);
 
+  // Helper function to convert timestamp to local date string
+  function toLocalDateString(timestamp) {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   // Convert to day log entries
   const entries = filtered.map(item => {
     const url = new URL(item.url);
-    const actualDate = new Date(item.lastVisitTime).toISOString().split('T')[0];
+    const actualDate = toLocalDateString(item.lastVisitTime); // Use local timezone
     return {
       url: item.url,
       title: item.title || url.hostname,

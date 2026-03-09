@@ -94,3 +94,51 @@ If asked to fix Today.jsx:
 Show the file first.
 Confirm understanding.
 Then make changes.
+
+## No Magic Strings — Single Source of Truth
+
+Any string that identifies something that already
+exists as a key or value in a data structure
+must never be hardcoded again elsewhere.
+
+Derive from the source. Never duplicate.
+
+IDENTIFIERS:
+Wrong:  if (provider === 'claude')
+Right:  provider is already stored in settings.
+Read from there. Do not re-declare the
+string in a new place.
+
+Wrong:  const models = ['claude', 'openai', 'gemini']
+Right:  Object.keys(models) where models object
+already exists in Settings.jsx or constants.
+
+LISTS DERIVED FROM CONFIG:
+Wrong:  const copyable = ['standup', 'daySummary']
+Right:  Add copyable: true flag to each template.
+Filter TEMPLATES by that flag.
+The template object is the source of truth.
+
+Wrong:  const cloudProviders = ['claude', 'openai', 'gemini']
+Right:  Add local: false to each provider config.
+Derive the list from that flag.
+
+FEATURE FLAGS AND CONDITIONS:
+Wrong:  if (['claude', 'openai'].includes(provider))
+Right:  if (provider.requiresApiKey === true)
+Add the property to the provider definition.
+
+REGISTRY KEYS:
+getPrompt('standup', context) is the one exception.
+Registry key strings must match exactly by design.
+Add a comment when using them so it is clear:
+getPrompt('standup', context) // registry key — must match registry.js
+
+RULE OF THUMB:
+If you are typing a string that you have typed
+before somewhere else in the codebase,
+stop and find where it came from.
+Reference that source instead or convert to a proper type or object or JS doc
+If a condition needs a list of things,
+add a property to the thing's definition
+and derive the list from there.
