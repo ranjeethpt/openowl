@@ -160,12 +160,24 @@ export default function Today({ onNavigateToAsk }) {
   }
 
   function formatDateLabel(dateStr) {
-    const date = new Date(dateStr + 'T12:00:00');
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    // Helper to get local date string
+    const toLocalDateString = (timestamp) => {
+      const date = new Date(timestamp);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const today = toLocalDateString(Date.now());
+    const yesterday = toLocalDateString(Date.now() - 86400000);
 
     if (dateStr === today) return 'Today';
     if (dateStr === yesterday) return 'Yesterday';
+
+    // Parse the date string as local date (not UTC)
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
 
     const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
     const dayMonth = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -176,19 +188,21 @@ export default function Today({ onNavigateToAsk }) {
   function formatLastActivityLabel(dateStr) {
     if (!dateStr) return 'recently';
 
-    const date = new Date(dateStr + 'T12:00:00');
+    // Parse the date string as local date (not UTC)
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const activityDate = new Date(year, month - 1, day);
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const activityDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
     const daysAgo = Math.floor((today - activityDate) / (1000 * 60 * 60 * 24));
 
     if (daysAgo === 1) return 'Yesterday';
     if (daysAgo === 2 || daysAgo === 3) {
-      return date.toLocaleDateString('en-US', { weekday: 'long' });
+      return activityDate.toLocaleDateString('en-US', { weekday: 'long' });
     }
     if (daysAgo >= 4) {
-      return date.toLocaleDateString('en-US', {
+      return activityDate.toLocaleDateString('en-US', {
         weekday: 'long',
         day: 'numeric',
         month: 'short'

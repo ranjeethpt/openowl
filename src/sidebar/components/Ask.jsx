@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getAllTemplates } from '../../prompts/templates.js';
+import { getPrompt } from '../../prompts/registry.js';
 
 /**
  * Ask component - AI chat with browser context awareness + templates
  */
-function Ask({ messages, onMessagesChange }) {
+function Ask({ messages, onMessagesChange, onNavigateToSettings }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -15,9 +16,11 @@ function Ask({ messages, onMessagesChange }) {
   const [todayStats, setTodayStats] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [toast, setToast] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const loadingTimers = useRef([]);
+  const toastTimeoutRef = useRef(null);
 
   // Auto-run if a new message is added with autoRun flag
   const processedAutoRunRef = useRef(null);
@@ -153,6 +156,55 @@ function Ask({ messages, onMessagesChange }) {
   }
 
   /**
+   * Convert API errors to user-friendly messages
+   */
+  function getUserFriendlyError(errorMessage) {
+    const errorLower = errorMessage.toLowerCase();
+
+    // Claude API errors
+    if (errorLower.includes('authentication_error') || errorLower.includes('invalid x-api-key')) {
+      return 'Invalid Claude API key. Please check your API key in Settings.';
+    }
+    if (errorLower.includes('401') && errorLower.includes('claude')) {
+      return 'Claude API authentication failed. Please verify your API key in Settings.';
+    }
+
+    // Ollama connection errors
+    if (errorLower.includes('err_connection_refused') || errorLower.includes('failed to fetch')) {
+      return 'Cannot connect to Ollama. Make sure Ollama is running locally (http://localhost:11434).';
+    }
+    if (errorLower.includes('econnrefused')) {
+      return 'Connection refused. If using Ollama, make sure it is running. Check Settings for provider configuration.';
+    }
+
+    // OpenAI/Gemini API errors
+    if (errorLower.includes('openai') && (errorLower.includes('401') || errorLower.includes('authentication'))) {
+      return 'Invalid OpenAI API key. Please check your API key in Settings.';
+    }
+    if (errorLower.includes('gemini') && (errorLower.includes('401') || errorLower.includes('api key not valid'))) {
+      return 'Invalid Gemini API key. Please check your API key in Settings.';
+    }
+
+    // Generic API key errors
+    if (errorLower.includes('api key') || errorLower.includes('apikey')) {
+      return 'API key issue detected. Please verify your API key in Settings.';
+    }
+
+    // Rate limit errors
+    if (errorLower.includes('rate limit') || errorLower.includes('429')) {
+      return 'Rate limit exceeded. Please wait a moment and try again, or check your API plan in Settings.';
+    }
+
+    // Network errors
+    if (errorLower.includes('network') || errorLower.includes('fetch')) {
+      return 'Network error. Check your internet connection and provider settings.';
+    }
+
+    // Default: return original message if no pattern matches
+    return errorMessage;
+  }
+
+  /**
    * Send question to AI
    */
   async function askAI(question) {
@@ -192,12 +244,15 @@ function Ask({ messages, onMessagesChange }) {
       }
     } catch (error) {
       console.error('Error asking AI:', error);
-      setError(error.message);
+
+      // Convert to user-friendly error message
+      const friendlyError = getUserFriendlyError(error.message);
+      setError(friendlyError);
 
       // Show error message in chat
       onMessagesChange(prev => [...prev, {
         role: 'error',
-        text: `Error: ${error.message}`
+        text: friendlyError
       }]);
     } finally {
       setLoading(false);
@@ -217,6 +272,56 @@ function Ask({ messages, onMessagesChange }) {
       role: 'error',
       text: 'Request cancelled'
     }]);
+  }
+
+  /**
+   * Show toast notification
+   */
+  function showToast(message, isError = false) {
+    // Clear existing toast timer
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+
+    setToast({ message, isError });
+
+    // Auto-hide after 3 seconds
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+    }, 6000);
+  }
+
+  /**
+   * Copy prompt to clipboard for manual paste into ChatGPT/Gemini
+   */
+  async function handleCopyPrompt(template) {
+    try {
+      // Gather data using the template's gather function
+      const gatherData = await template.gather();
+
+      // Check if data is empty
+      if (gatherData.isEmpty) {
+        showToast('No data to copy for this time range', true);
+        return;
+      }
+
+      // Build the prompt using getPrompt
+      const promptResult = getPrompt(template.prompt, gatherData);
+
+      // Combine system prompt and user prompt into one readable string
+      const combinedPrompt = promptResult.user
+        ? `${promptResult.system}\n\n${promptResult.user}`
+        : promptResult.system;
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(combinedPrompt);
+
+      // Show success toast
+      showToast('Prompt copied — paste into ChatGPT or Gemini or any AI chat');
+    } catch (error) {
+      console.error('Failed to copy prompt:', error);
+      showToast('Could not copy — try again', true);
+    }
   }
 
   /**
@@ -316,13 +421,22 @@ function Ask({ messages, onMessagesChange }) {
               {templates
                 .filter(t => t.type === 'auto' && !t.isCustom)
                 .map(t => (
-                  <button
-                    key={t.label}
-                    onClick={() => handleTemplateClick(t)}
-                    className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
-                  >
-                    {t.label}
-                  </button>
+                  <div key={t.label} className="flex flex-col gap-1">
+                    <button
+                      onClick={() => handleTemplateClick(t)}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-owl-blue/10 text-sm text-gray-700 rounded transition-colors"
+                    >
+                      {t.label}
+                    </button>
+                    {t.copyable && (
+                      <button
+                        onClick={() => handleCopyPrompt(t)}
+                        className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        Copy prompt
+                      </button>
+                    )}
+                  </div>
                 ))}
             </div>
 
@@ -384,13 +498,11 @@ function Ask({ messages, onMessagesChange }) {
             {error && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
                 {error}
-                {error.includes('API key') && (
-                  <div className="mt-2">
-                    <a href="#" onClick={() => window.location.hash = '#settings'} className="text-red-600 underline">
-                      Go to Settings →
-                    </a>
-                  </div>
-                )}
+                <div className="mt-2">
+                  <button onClick={onNavigateToSettings} className="text-red-600 hover:text-red-700 underline">
+                    Go to Settings →
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -408,6 +520,18 @@ function Ask({ messages, onMessagesChange }) {
                   }`}
                 >
                   <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
+
+                  {/* Settings link for error messages */}
+                  {msg.role === 'error' && (
+                    <div className="mt-2 pt-2 border-t border-red-200">
+                      <button
+                        onClick={onNavigateToSettings}
+                        className="text-xs text-red-600 hover:text-red-700 underline"
+                      >
+                        Go to Settings →
+                      </button>
+                    </div>
+                  )}
 
                   {/* Token count for AI messages */}
                   {msg.role === 'assistant' && msg.context?.tokensUsed && (
@@ -487,6 +611,17 @@ function Ask({ messages, onMessagesChange }) {
           {loading ? 'Thinking...' : 'Ask'}
         </button>
       </div>
+
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed bottom-4 left-4 right-4 px-4 py-3 rounded-lg shadow-lg text-sm ${
+          toast.isError
+            ? 'bg-red-50 text-red-800 border border-red-200'
+            : 'bg-green-50 text-green-800 border border-green-200'
+        }`}>
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }

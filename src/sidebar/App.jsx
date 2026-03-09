@@ -130,6 +130,7 @@ function App() {
             <Ask
               messages={chatMessages}
               onMessagesChange={setChatMessages}
+              onNavigateToSettings={() => setCurrentView('settings')}
             />
           )}
           {currentView === 'today' && (
