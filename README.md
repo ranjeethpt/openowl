@@ -3,7 +3,7 @@
 
   # OpenOwl
 
-  **AI browser memory for developers. All tabs context, workday tracking, custom templates. Local-first. Zero servers.**
+  **AI browser memory for people who work in tabs. All tabs context, workday tracking, custom templates. Local-first. Zero servers.**
 
   > A Chrome extension that gives developers AI-powered memory across all their open tabs and work history - with the ability to create custom templates for repeated lookups. Completely private and local-first.
 
@@ -281,6 +281,6 @@ Built with:
 
 ---
 
-**Built for developers who want AI assistance without giving up their data.**
+**Built for people who work in tabs and want AI assistance without giving up their data.**
 
 🦉 **OpenOwl** - Your work, your memory, your privacy.
