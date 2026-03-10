@@ -429,7 +429,7 @@ async function buildFullContext(question, modelName = null) {
   if (activeTab) totalChars += (activeTab.content?.length || 0);
 
   const snippetChars = copies
-    .map(c => c.snippet.length)
+    .map(c => c.text?.length || 0)
     .reduce((a, b) => a + b, 0);
   totalChars += snippetChars;
 
