@@ -1,133 +1,140 @@
 <div align="center">
   <img src="public/icons/icon128.png" alt="OpenOwl Logo" width="128" height="128">
 
-  # OpenOwl
+# OpenOwl
 
-  **AI browser memory for people who work in tabs. All tabs context, workday tracking, custom templates. Local-first. Zero servers.**
+**AI memory for your browser workday. No API key required to get started. All tabs context, workday tracking, custom templates. Local-first. Zero servers.**
 
-  > A Chrome extension that gives developers AI-powered memory across all their open tabs and work history - with the ability to create custom templates for repeated lookups. Completely private and local-first.
+> A Chrome extension that remembers what you work on across all your tabs and helps you write standups, find things you researched, and understand where your time goes. Completely private and local-first.
 
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 </div>
 
 ## ✨ Features
 
 ### 🎯 Smart AI Chat
-- **Ask across all tabs** - Query all open tabs and browsing history at once
-- **Context-aware responses** - AI knows what you're working on
+- **Ask across all tabs** - Query everything you have open and everything you have worked on
+- **Context-aware responses** - AI knows what you are working on right now
 - **Multi-turn conversations** - Follow-up questions maintain context
-- **Template-based shortcuts** - One-click actions for common tasks
+- **Template shortcuts** - One-click actions for your most common tasks
 
-### 📋 Custom Templates
-**NEW:** Create your own custom templates without writing code!
-- **Visual template builder** - No coding required
-- **Flexible filters** - Time ranges, domains, source (live/history)
-- **Custom instructions** - Tell the AI exactly what you want
-- **Reusable workflows** - Save templates for repeated lookups
-
-Built-in templates:
+### 📋 Built-in Quick Actions
+Ready to use from day one:
 - ✍️ **Write standup** - Daily update for your team
 - 📊 **Day summary** - What you worked on today
-- 🎯 **What to focus on** - Priority based on open tabs
+- 🎯 **What to focus on** - Priority based on your open tabs
 - 📅 **Week wrap** - End of week summary
-- 🔍 **Remind me of** - Search your work history
-- 📅 **Prep for** - Context for upcoming meetings
+- 🔍 **Remind me of** - Find something you worked on before
+- 📅 **Prep for** - Context for an upcoming meeting
 
-### 📊 Activity Tracking
-- **Automatic workday logging** - Tracks what you work on
-- **Smart filtering** - Active time, visit counts, scroll depth
-- **Copy tracking** - Remembers snippets you copied
-- **History import** - Last 30 days imported on first install
-- **Privacy controls** - Never-track list for personal sites
+### 📋 Custom Templates
+Build your own one-click actions for workflows you repeat.
+- **Visual template builder** - No coding required
+- **Flexible filters** - Time ranges, domains, live or imported history
+- **Custom instructions** - Tell the AI exactly what you want
+- **Reusable** - Save once, use every day
 
-### 🔐 Privacy & Security
-- ✅ **100% local-first** - All data in Chrome storage and IndexedDB
-- ✅ **No servers** - Except your chosen LLM provider
-- ✅ **No tracking** - Zero telemetry or analytics
-- ✅ **Open source** - Fully auditable code
-- ✅ **BYOK** - Bring your own API key
+### 📊 Workday Tracking
+- **Automatic logging** - Tracks what you work on as you browse
+- **Copy tracking** - Remembers snippets you copied from pages
+- **History import** - Last 30 days imported on first install so standup works immediately
+- **Privacy controls** - Never-track list for personal and non-work sites
 
-### 🤖 Multi-Provider Support
-Choose your LLM provider:
-- **Ollama** (local, free, maximum privacy)
-- **Anthropic Claude** (recommended)
-- **OpenAI** (GPT-4, GPT-3.5)
+### 🔐 Data & Privacy
+- ✅ **All activity stored locally** - Chrome storage and IndexedDB only, on your device
+- ✅ **No OpenOwl servers** - Nothing sent to us, ever
+- ✅ **You choose your AI** - Prompts sent only to the provider you configure
+- ✅ **No analytics or telemetry** - Zero tracking
+- ✅ **Open source** - Fully auditable
+
+### 🤖 Works Your Way
+
+With an API key:
+- **Anthropic Claude** 
+- **OpenAI** (GPT-4o, GPT-4)
 - **Google Gemini**
+- **Ollama** (local, free, nothing leaves your machine)
+
+Without an API key:
+- **Copy prompt** — every template builds your prompt with real data and copies it to clipboard. Paste into ChatGPT, Gemini, Claude.ai, or any AI chat tool in your browser. No setup. Works on day one.
 
 ## 🚀 Quick Start
 
 ### Chrome Web Store
-_Coming soon_ - We're working on publishing to the Chrome Web Store.
+_Coming soon_ — Publishing to Chrome Web Store in progress.
 
 ### Install from Source
 
-1. **Clone and install dependencies**
+1. **Clone and install**
    ```bash
    git clone https://github.com/yourusername/openowl.git
    cd openowl
    npm install
    ```
 
-2. **Build the extension**
+2. **Build**
    ```bash
-   npm run dev    # Development mode with hot reload
+   npm run dev    # Development mode
    # OR
    npm run build  # Production build
    ```
 
 3. **Load in Chrome**
    - Open `chrome://extensions/`
-   - Enable "Developer mode" (top right)
-   - Click "Load unpacked"
+   - Enable **Developer mode** (top right toggle)
+   - Click **Load unpacked**
    - Select the `dist/` folder
 
-4. **Configure your LLM**
+4. **Configure your AI**
    - Click the OpenOwl 🦉 icon in Chrome toolbar
    - Go to **Settings** tab
-   - Select provider and enter API key
+   - Select your AI provider and enter your API key
    - Click **Save Settings**
 
 ## 📖 Usage
 
+### Day one
+OpenOwl imports your last 30 days of browser history on install.
+Open the Ask tab and click **Write standup** — it already knows what you have been working on.
+
 ### Ask Tab
-Click any template button or type your question:
+Click any template or type your own question:
 ```
-"What am I working on?"
+"What am I working on today?"
 "Write my standup"
-"Remind me of that API I found yesterday"
+"Remind me of that API rate limit issue I looked into"
+"What Jira tickets did I work on this week?"
 ```
 
 ### Creating Custom Templates
 
 1. Go to **Settings** → **📋 Custom Templates**
 2. Click **Create template**
-3. Configure your template:
-   - **Name**: "GitHub PRs this week"
+3. Fill in the details:
+   - **Name**: GitHub PRs this week
    - **Icon**: 🚀
    - **Time range**: Last 7 days
    - **Domains**: github.com
-   - **Instructions**: "List all pull requests I reviewed"
-   - **Output format**: Bullets
-4. Click **Create**
-5. Your template appears in the Ask tab!
+   - **Instructions**: List all pull requests I reviewed or raised
+4. Click **Save**
+5. Your template appears in the Ask tab immediately
 
 ### Example Custom Templates
 
-**JIRA Tickets Today**
-- Time: Today
+**Jira this week**
+- Time: This week
 - Domains: atlassian.net
-- Instructions: Group by ticket ID, show status
+- Instructions: Group by ticket ID, show what I did on each
 
-**Research Summary**
+**GitHub activity**
 - Time: Last 7 days
-- Domains: stackoverflow.com, github.com
-- Source: Live only
-- Instructions: Summarize technical topics researched
+- Domains: github.com
+- Instructions: PRs raised, reviewed, and merged
 
-**Meeting Prep**
-- Time: Yesterday
-- Include tabs: ✓
-- Instructions: Context for standup meeting
+**Research log**
+- Time: Last 14 days
+- Domains: stackoverflow.com, github.com
+- Instructions: What technical topics did I research
 
 ## 🏗️ Architecture
 
@@ -135,152 +142,136 @@ Click any template button or type your question:
 ```
 openowl/
 ├── src/
-│   ├── background/          # Service worker
-│   ├── content/            # Content scripts + extractors
-│   │   └── extractors/     # Site-specific extractors
-│   ├── sidebar/            # React UI components
-│   │   └── components/     # Settings, Ask, Today, etc.
-│   ├── prompts/            # LLM prompt system
-│   │   ├── registry.js     # All prompts
-│   │   └── templates.js    # Template definitions
-│   ├── storage/            # Storage abstraction
-│   ├── llm/               # Multi-provider LLM client
-│   └── utils/             # Utilities
-├── public/                # Static assets
-└── dist/                  # Built extension
+│   ├── background/          # Service worker — all LLM calls live here
+│   ├── content/             # Content scripts + extractors
+│   │   └── extractors/      # Site-specific content extractors
+│   ├── sidebar/             # React UI
+│   │   └── components/      # Ask, Today, Settings
+│   ├── prompts/             # LLM prompt system
+│   │   ├── registry.js      # All prompts defined here
+│   │   └── templates.js     # Template definitions
+│   ├── storage/             # Storage abstraction
+│   ├── llm/                 # Multi-provider LLM client
+│   └── utils/               # Shared utilities
+├── public/                  # Static assets + manifest
+└── dist/                    # Built extension
 ```
 
 ### Tech Stack
 - **Chrome Extension Manifest V3**
-- **React 18** + **Vite** - Fast, modern UI
-- **Tailwind CSS** - Styling
-- **IndexedDB** (idb) - Activity log storage
-- **Chrome Storage API** - Settings & templates
-- **@crxjs/vite-plugin** - Chrome extension dev tooling
+- **React 18** + **Vite**
+- **Tailwind CSS**
+- **IndexedDB** (idb) — activity log
+- **Chrome Storage API** — settings and templates
+- **@crxjs/vite-plugin** — Chrome extension build tooling
 
 ### Data Flow
 
 1. **Content Script** → Extracts page content using site-specific extractors
 2. **Background Service** → Logs activity to IndexedDB
-3. **User Clicks Template** → Gathers filtered data via `buildCustomGatherer()`
-4. **Prompt Builder** → Constructs LLM prompt from template config
-5. **LLM Call** → Sends to user's chosen provider
-6. **Response** → Displayed in Ask tab
+3. **Template Clicked** → Gathers filtered data based on template config
+4. **Prompt Builder** → Constructs prompt from registry
+5. **LLM Call** → Sent to your chosen provider
+6. **Response** → Shown in Ask tab
 
 ## 📚 Documentation
 
-- [**CONTRIBUTING.md**](./CONTRIBUTING.md) - How to add extractors, templates, prompts
-- [**SETUP.md**](./SETUP.md) - Detailed setup and architecture
-- [**src/prompts/README.md**](./src/prompts/README.md) - Prompt system architecture
-- [**src/prompts/templates/README.md**](./src/prompts/templates/README.md) - Template guide
-- [**public/icons/README.md**](./public/icons/README.md) - Icon design system
+- [**CONTRIBUTING.md**](./CONTRIBUTING.md) — Adding extractors, templates, prompts
+- [**SETUP.md**](./SETUP.md) — Setup and architecture detail
+- [**public/icons/README.md**](./public/icons/README.md) — Icon system
 
 ## 🤝 Contributing
 
-Contributions welcome! We'd love help with:
+Contributions welcome. Most wanted:
 
-- **Site extractors** - Add support for more websites (Linear, Notion, Confluence, etc.)
-- **Built-in templates** - New useful templates
-- **Bug fixes** - Found an issue? Submit a PR!
-- **Documentation** - Improve guides and examples
+- **Site extractors** — Add support for more websites (Linear, Notion, Confluence, Datadog, etc.)
+- **Built-in templates** — Useful templates for common workflows
+- **Bug fixes** — Found something broken? Open a PR
+- **Documentation** — Improve guides and examples
 
-**Quick contribution guide:**
+**Steps:**
 
 1. Fork the repo
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a branch (`git checkout -b feature/my-feature`)
 3. Make changes and test locally
-4. Commit (`git commit -m 'Add amazing feature'`)
-5. Push (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
+4. Commit (`git commit -m 'Add my feature'`)
+5. Push and open a Pull Request
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guides on:
-- Adding site extractors
-- Creating new templates
-- Writing LLM prompts
-- Testing and debugging
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guides on adding extractors, templates, and prompts.
 
 ## 🐛 Debugging
 
 Open the service worker console:
 ```
-chrome://extensions → OpenOwl → "service worker" link
+chrome://extensions → OpenOwl → service worker link
 ```
 
-Test storage functions:
+Test storage in the console:
 ```javascript
-// Get custom templates
-const templates = await chrome.storage.local.get('customTemplates')
-console.table(templates.customTemplates)
+// Check custom templates
+chrome.storage.local.get('customTemplates', console.log)
 
-// Get activity entries
-const db = await indexedDB.open('openowl-db')
-const tx = db.transaction('dayLogs', 'readonly')
-const logs = await tx.objectStore('dayLogs').getAll()
-console.table(logs)
+// Check recent activity
+const db = await openDB('openowl-db')
+const logs = await db.getAll('dayLogs')
+console.table(logs.slice(-10))
 ```
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for more debugging commands.
 
 ## 🗺️ Roadmap
 
 **Completed ✅**
 - [x] Multi-provider LLM support (Claude, OpenAI, Gemini, Ollama)
 - [x] Activity tracking with site-specific extractors
-- [x] Smart template system
-- [x] Custom template builder (no code required)
-- [x] History import (30 days on first install)
+- [x] Built-in template system
+- [x] Custom template builder
+- [x] History import on first install
 - [x] Copy tracking
 - [x] Multi-turn conversations
-- [x] Privacy controls (never-track list, work hours)
+- [x] Privacy controls and never-track list
 
 **Upcoming 🚧**
-- [ ] Week/month activity analytics
-- [ ] Pattern learning (frequent workflows)
-- [ ] Browser history search integration
-- [ ] Export templates (share with team)
 - [ ] Chrome Web Store publishing
+- [ ] Export templates (share with your team)
+- [ ] Slack integration (post standup directly)
 
-**Future Ideas 💭**
-- [ ] Slack integration (post standups)
-- [ ] Calendar integration (meeting prep)
-- [ ] Team templates (shared within organization)
-- [ ] Mobile companion app
+**Future 💭**
+- [ ] Team templates (shared within organisation)
+- [ ] Calendar integration (meeting prep automation)
+- [ ] Pattern learning (frequent workflows)
 
 ## ❓ FAQ
+**Do I need an API key?**
+No. Every template has a Copy prompt button that builds your prompt with your real work data and copies it to clipboard. Paste into ChatGPT, Gemini, Claude.ai, or any AI tool you already use. If you want responses directly in the sidebar, add an API key in Settings. For maximum privacy with no API costs, run Ollama locally.
 
-**Q: Is my data private?**
-A: Yes! All data is stored locally in Chrome. Nothing is sent to external servers except LLM API calls (which you control).
+**Is my data private?**
+All activity is stored locally on your device. Nothing is sent to OpenOwl or any third party. The only external calls are to the AI provider you configure — which you control.
 
-**Q: Which LLM provider should I use?**
-A: For maximum privacy, use Ollama (local, free). For best quality, use Claude or GPT-4.
+**Which AI provider should I use?**
+For maximum privacy, use Ollama (runs locally, free, nothing leaves your machine). For best quality, Claude or GPT-4o.
 
-**Q: How much does it cost?**
-A: OpenOwl is free. You only pay for LLM API usage (or use free local Ollama).
+**Does it work without an API key?**
+Yes, with Ollama running locally. Download from [ollama.ai](https://ollama.ai). No API key needed.
 
-**Q: Can I use it without an API key?**
-A: Yes, with Ollama running locally. Download from [ollama.ai](https://ollama.ai).
+**What does it track?**
+Everything you visit during your workday by default, minus sites in your never-track list. YouTube, Netflix, social media and search engines are excluded by default. You control the list in Settings → Preferences.
 
-**Q: Does it track everything I browse?**
-A: You control what's tracked via Settings → Preferences → Never Track list. Personal sites (YouTube, Netflix, etc.) are excluded by default.
-
-**Q: Can I export my data?**
-A: Data is in IndexedDB. See debugging section for export commands. Template export feature coming soon.
+**Can I use it if my company blocks API keys in extensions?**
+Yes. Each template has a **Copy prompt** button that builds your prompt with real data and copies it to clipboard. Paste into ChatGPT, Gemini, or any AI chat tool in your browser.
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE)
 
-## 🙏 Acknowledgments
+## 🙏 Built With
 
-Built with:
-- [Vite](https://vitejs.dev/) - Lightning fast build tool
-- [React](https://react.dev/) - UI framework
-- [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS
-- [idb](https://github.com/jakearchibald/idb) - IndexedDB wrapper
-- [@crxjs/vite-plugin](https://crxjs.dev/vite-plugin/) - Chrome extension Vite plugin
+- [Vite](https://vitejs.dev/)
+- [React](https://react.dev/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [idb](https://github.com/jakearchibald/idb)
+- [@crxjs/vite-plugin](https://crxjs.dev/vite-plugin/)
 
 ---
 
-**Built for people who work in tabs and want AI assistance without giving up their data.**
+**Built for anyone whose job lives in a browser.**
 
-🦉 **OpenOwl** - Your work, your memory, your privacy.
+🦉 **OpenOwl** — Your work, your memory, your privacy.
