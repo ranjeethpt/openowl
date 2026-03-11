@@ -258,6 +258,8 @@ Everything you visit during your workday by default, minus sites in your never-t
 **Can I use it if my company blocks API keys in extensions?**
 Yes. Each template has a **Copy prompt** button that builds your prompt with real data and copies it to clipboard. Paste into ChatGPT, Gemini, or any AI chat tool in your browser.
 
+⚠️ Before pasting, review what's been copied. Prompts include real page content from your tabs and browsing history, which may contain sensitive, confidential, or proprietary information. Always check the clipboard contents match your company's acceptable use policy before sharing with any external AI service.
+
 ## 📄 License
 
 MIT — see [LICENSE](LICENSE)
