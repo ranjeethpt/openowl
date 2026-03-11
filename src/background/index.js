@@ -121,6 +121,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleGetLastActivityLog(sendResponse);
       return true; // Async response
 
+    case 'TEST_OLLAMA_CONNECTION':
+      handleTestOllamaConnection(sendResponse);
+      return true; // Async response
+
     default:
       console.warn('Unknown message type:', message.type);
       sendResponse({ error: 'Unknown message type' });
@@ -1265,6 +1269,31 @@ async function handleGetLastActivityLog(sendResponse) {
     sendResponse({ success: true, data: entries });
   } catch (error) {
     console.error('Error getting last activity log:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Test Ollama connection
+ */
+async function handleTestOllamaConnection(sendResponse) {
+  try {
+    const settings = await storage.getSettings();
+    const ollamaUrl = settings.ollamaUrl || 'http://localhost:11434';
+
+    // Test connection by hitting /api/tags endpoint
+    const response = await fetch(`${ollamaUrl}/api/tags`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (response.ok) {
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: 'Ollama connection failed' });
+    }
+  } catch (error) {
+    console.warn('Ollama connection test failed:', error);
     sendResponse({ success: false, error: error.message });
   }
 }

@@ -46,21 +46,55 @@ function App() {
     }
   }, [chatMessages, isLoading]);
 
+  /**
+   * Check if LLM is properly configured
+   * Returns true if:
+   * - Ollama is selected AND connection test succeeds
+   * - OR cloud provider (claude/openai/gemini) is selected AND API key exists
+   */
   async function checkConfiguration() {
     try {
       const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
-      if (response.success) {
-        const data = response.data;
-        // Check if user has configured at least one API key or is using Ollama
-        const hasApiKey = Object.keys(data.apiKeys || {}).some(key => data.apiKeys[key]);
-        const isOllama = data.selectedProvider === 'ollama';
-        const configured = hasApiKey || (isOllama && !!data.ollamaUrl);
-
-        setIsConfigured(configured);
-        // Don't force navigation - stay on Ask tab by default
+      if (!response.success) {
+        setIsConfigured(false);
+        return;
       }
+
+      const data = response.data;
+      const provider = data.selectedProvider;
+
+      // No provider selected yet
+      if (!provider) {
+        setIsConfigured(false);
+        return;
+      }
+
+      // Check Ollama: test actual connection
+      if (provider === 'ollama') {
+        try {
+          const testResponse = await chrome.runtime.sendMessage({ type: 'TEST_OLLAMA_CONNECTION' });
+          setIsConfigured(testResponse.success === true);
+          return;
+        } catch (error) {
+          console.warn('Ollama connection test failed:', error);
+          setIsConfigured(false);
+          return;
+        }
+      }
+
+      // Check cloud providers: verify API key exists
+      if (provider === 'claude' || provider === 'openai' || provider === 'gemini') {
+        const apiKeys = data.apiKeys || {};
+        const hasKey = apiKeys[provider] && apiKeys[provider].trim().length > 0;
+        setIsConfigured(hasKey);
+        return;
+      }
+
+      // Unknown provider
+      setIsConfigured(false);
     } catch (error) {
       console.error('Error checking configuration:', error);
+      setIsConfigured(false);
     } finally {
       setIsLoading(false);
     }
@@ -125,7 +159,7 @@ function App() {
               messages={chatMessages}
               onMessagesChange={setChatMessages}
               onNavigateToSettings={() => setCurrentView('settings')}
-              isConfigured={isConfigured}
+              isLLMConfigured={isConfigured}
             />
           )}
           {currentView === 'today' && (
@@ -136,9 +170,15 @@ function App() {
                   setChatMessages(prev => [...prev, { role: 'user', text: prompt, autoRun: true }]);
                 }
               }}
+              isLLMConfigured={isConfigured}
             />
           )}
-          {currentView === 'settings' && <Settings onSave={checkConfiguration} />}
+          {currentView === 'settings' && (
+            <Settings
+              onSave={checkConfiguration}
+              isLLMConfigured={isConfigured}
+            />
+          )}
         </div>
       </main>
     </div>
