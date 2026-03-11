@@ -15,8 +15,8 @@ All AI instructions are centralized here for:
 
 ## Quick Navigation
 
-- **[templates/README.md](./templates/README.md)** - User-facing quick action buttons
 - **[registry.js](./registry.js)** - LLM system prompts
+- **[templates.js](./templates.js)** - User-facing quick action buttons
 
 ## Architecture: Prompts vs Templates
 
@@ -102,6 +102,63 @@ Templates reference prompts by name:
 standup: {
   prompt: 'standup',  // Must match key in PromptRegistry
   gather: async () => ({ ... })
+}
+```
+
+## Template Types
+
+### Type: `auto`
+Runs immediately when clicked. No user input needed.
+
+**Example: Daily Standup**
+```javascript
+standup: {
+  label: '✍️ Write standup',
+  type: 'auto',
+  category: 'daily',
+  copyable: true,
+  triggers: ['standup', 'stand up', 'daily update'],
+  gather: async () => {
+    // Gather all needed data
+    return { todayLog, yesterdayLog, copies, format };
+  },
+  prompt: 'standup'
+}
+```
+
+### Type: `prompt`
+Prefills input field, waits for user to complete.
+
+**Example: Memory Search**
+```javascript
+remind: {
+  label: '🔍 Remind me of...',
+  type: 'prompt',
+  prefill: 'Remind me of ',
+  category: 'memory',
+  triggers: ['remind me', 'i remember', "can't find"],
+  gather: async (question) => {
+    // User completes: "Remind me of that React article"
+    return { matches: await searchMemory(question), question };
+  },
+  prompt: 'memorySearch'
+}
+```
+
+## Template Structure
+
+```javascript
+export const TEMPLATES = {
+  yourTemplate: {
+    label: string,           // Button text (e.g., '✍️ Write standup')
+    type: 'auto' | 'prompt', // auto = runs immediately, prompt = waits for user
+    category: string,        // Group: 'daily', 'memory', 'focus'
+    copyable?: boolean,      // If true, shows "Copy prompt" button
+    triggers: string[],      // Intent detection keywords
+    prefill?: string,        // (prompt type only) Prefills input field
+    gather: async (question?) => object, // Collects context data
+    prompt: string           // Must match a key in PromptRegistry
+  }
 }
 ```
 
@@ -191,16 +248,31 @@ If this prompt should have a button in the Ask tab:
 ```javascript
 // templates.js
 export const TEMPLATES = {
+  // ... existing templates
+
   myFeature: {
-    label: '🔍 My Feature',
-    type: 'auto',
-    prompt: 'myPrompt',  // Must match key in PromptRegistry
-    gather: async () => ({ requiredField: 'value' })
+    label: '🔍 My Feature',     // Button text with emoji
+    type: 'auto',                // 'auto' = runs immediately, 'prompt' = waits for user input
+    category: 'daily',           // Group: 'daily', 'memory', 'focus'
+    copyable: false,             // Optional: enable "Copy prompt" button
+    triggers: ['keyword1', 'keyword2'],  // Intent detection keywords
+    gather: async () => {
+      // Collect context data
+      const tabs = await getAllTabs();
+      const todayLog = await storage.getEntriesForHistory(20);
+
+      return { tabs, todayLog };
+    },
+    prompt: 'myPrompt'  // Must match key in PromptRegistry!
   }
 };
 ```
 
-See [templates/README.md](./templates/README.md#adding-a-new-template) for details.
+**Testing your template:**
+1. Reload extension in Chrome
+2. Open Ask tab in OpenOwl sidebar
+3. Click your new template button
+4. Verify response uses correct context
 
 ### Step 3: Submit PR with:
    - Clear description of use case
@@ -217,7 +289,9 @@ See [templates/README.md](./templates/README.md#adding-a-new-template) for detai
 
 ## Best Practices
 
-### ✅ DO
+### For Prompts
+
+#### ✅ DO
 
 - Keep prompts under 500 chars (before dynamic content injection)
 - Be specific and actionable
@@ -226,7 +300,7 @@ See [templates/README.md](./templates/README.md#adding-a-new-template) for detai
 - Document required context fields
 - Test with edge cases (empty data, missing fields)
 
-### ❌ DON'T
+#### ❌ DON'T
 
 - Hardcode prompts anywhere else in codebase
 - Make `build()` functions throw errors
@@ -234,7 +308,29 @@ See [templates/README.md](./templates/README.md#adding-a-new-template) for detai
 - Include sensitive data in prompts
 - Override user's message with `prompt.user` (only use as fallback)
 
+### For Templates
+
+#### ✅ DO
+
+- Reference prompts by name: `prompt: 'standup'`
+- Ensure prompt exists in registry before adding template
+- Keep `gather()` functions focused on collecting specific data
+- Add clear trigger keywords for intent detection
+- Filter out sensitive data in `gather()` (respect user preferences)
+- Use meaningful emoji in labels for visual scanning
+- Test with empty/minimal data (edge cases)
+
+#### ❌ DON'T
+
+- Reference non-existent prompts (runtime error)
+- Gather unnecessary data (slow, wastes tokens)
+- Throw errors in `gather()` - return minimal data instead
+- Duplicate data gathering logic (use shared helpers)
+- Add templates for internal processes (use prompt directly)
+
 ## Debugging
+
+### Debugging Prompts
 
 ```javascript
 import { listPrompts, validateContext } from './registry.js';
@@ -246,6 +342,71 @@ console.log(listPrompts());
 validateContext('ask', { tabs: [...] });
 // Logs warnings for missing fields
 ```
+
+### Debugging Templates
+
+**Check if template is detected:**
+
+```javascript
+// In browser console (service worker)
+const { detectTemplate } = await import('./utils/intentDetector.js');
+const template = detectTemplate('generate my standup');
+console.log(template); // Should return 'standup'
+```
+
+**Test gather() function:**
+
+```javascript
+// In browser console (service worker)
+const { TEMPLATES } = await import('./prompts/templates.js');
+const data = await TEMPLATES.standup.gather();
+console.log(data); // Check gathered context
+```
+
+**Verify prompt reference:**
+
+```javascript
+// In browser console (service worker)
+import { getPrompt } from './prompts/registry.js';
+
+// This should NOT throw an error:
+const prompt = getPrompt('standup', { todayLog: [], yesterdayLog: [] });
+console.log(prompt);
+```
+
+### Common Issues
+
+**Template not appearing in UI**
+
+- Check `label` is set
+- Verify template is exported in `TEMPLATES` object
+- Reload extension after changes
+
+**"Unknown prompt" error**
+
+```
+Error: Unknown prompt: "standup". Available prompts: ask, summary, ...
+```
+
+**Fix**: Ensure prompt exists in registry.js with exact same name:
+```javascript
+// registry.js
+export const PromptRegistry = {
+  standup: { ... }  // Must match template's prompt: 'standup'
+};
+```
+
+**gather() returns empty data**
+
+- Check async functions are awaited
+- Verify storage has data (see [CONTRIBUTING.md](../../CONTRIBUTING.md#debugging))
+- Check user preferences aren't filtering everything out
+
+**Intent detection not working**
+
+- Add more trigger keywords
+- Test with exact trigger phrase
+- Check `intentDetector.js` matching logic
 
 ## Token Budgets
 
