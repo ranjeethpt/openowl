@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { getDisplayName } from '../../content/extractors/registry.js';
+import { getAllTemplates } from '../../prompts/templates.js';
+import { getPrompt } from '../../prompts/registry.js';
 
 /**
  * Today tab - Redesigned to show interpreted meaning, not raw data
  * Three states: First Install, Getting Started, Active
  */
-export default function Today({ onNavigateToAsk }) {
+export default function Today({ onNavigateToAsk, isLLMConfigured }) {
   // State detection
   const [appState, setAppState] = useState(null); // 'first_install', 'getting_started', 'active'
   const [loading, setLoading] = useState(true);
@@ -138,13 +140,84 @@ export default function Today({ onNavigateToAsk }) {
     setBriefingDismissed(true);
   }
 
-  function handleStandupClick() {
+  async function handleStandupClick() {
+    // If no LLM configured: copy prompt instead
+    if (!isLLMConfigured) {
+      await handleCopyPromptForTemplate('standup', 'Standup prompt copied — paste into any AI chat');
+      return;
+    }
+
+    // Otherwise navigate to Ask tab and run standup
     if (onNavigateToAsk) {
       onNavigateToAsk('Write my daily standup');
     }
   }
 
-  function handleSummaryClick() {
+  /**
+   * Copy prompt to clipboard for any template when LLM not configured
+   */
+  async function handleCopyPromptForTemplate(templateKey, successMessage) {
+    try {
+      // Get all templates
+      const allTemplates = await getAllTemplates();
+      const template = allTemplates.find(t => t.key === templateKey);
+
+      if (!template) {
+        console.error(`Template ${templateKey} not found`);
+        return;
+      }
+
+      // Gather data using the template's gather function
+      const gatherData = await template.gather();
+
+      // Check if data is empty
+      if (gatherData.isEmpty) {
+        showToast('No data to copy for this time range');
+        return;
+      }
+
+      // Build the prompt using getPrompt
+      const promptResult = getPrompt(template.prompt, gatherData);
+
+      // Combine system prompt and user prompt into one readable string
+      const combinedPrompt = promptResult.user
+        ? `${promptResult.system}\n\n${promptResult.user}`
+        : promptResult.system;
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(combinedPrompt);
+
+      // Show success toast
+      showToast(successMessage);
+    } catch (error) {
+      console.error(`Failed to copy ${templateKey} prompt:`, error);
+      showToast('Could not copy — try again');
+    }
+  }
+
+  /**
+   * Show toast notification
+   */
+  function showToast(message) {
+    // Simple toast implementation - you can enhance this
+    const toastDiv = document.createElement('div');
+    toastDiv.className = 'fixed bottom-4 left-4 right-4 px-4 py-3 bg-green-50 text-green-800 border border-green-200 rounded-lg shadow-lg text-sm z-50';
+    toastDiv.textContent = message;
+    document.body.appendChild(toastDiv);
+
+    setTimeout(() => {
+      document.body.removeChild(toastDiv);
+    }, 3000);
+  }
+
+  async function handleSummaryClick() {
+    // If no LLM configured: copy prompt instead
+    if (!isLLMConfigured) {
+      await handleCopyPromptForTemplate('daySummary', 'Day summary prompt copied — paste into any AI chat');
+      return;
+    }
+
+    // Otherwise navigate to Ask tab and run summary
     if (onNavigateToAsk) {
       onNavigateToAsk('Give me a detailed summary of my workday');
     }
@@ -301,7 +374,7 @@ export default function Today({ onNavigateToAsk }) {
           onClick={handleStandupClick}
           className="text-sm px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
         >
-          ✍️ Write standup
+          {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
         </button>
       </div>
     );
@@ -328,7 +401,7 @@ export default function Today({ onNavigateToAsk }) {
               onClick={handleStandupClick}
               className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition shadow-sm"
             >
-              ✍️ Write my first standup
+              {isLLMConfigured ? '✍️ Write my first standup' : '📋 Build my standup prompt'}
             </button>
           </div>
 
@@ -455,13 +528,13 @@ export default function Today({ onNavigateToAsk }) {
                 onClick={handleStandupClick}
                 className="flex-1 text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
               >
-                ✍️ Write standup
+                {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
               </button>
               <button
                 onClick={handleSummaryClick}
                 className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
               >
-                📊 Day summary
+                {isLLMConfigured ? '📊 Day summary' : '📋 Copy summary prompt'}
               </button>
             </div>
           </div>
@@ -471,13 +544,13 @@ export default function Today({ onNavigateToAsk }) {
               onClick={handleStandupClick}
               className="flex-1 text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
             >
-              ✍️ Write standup
+              {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
             </button>
             <button
               onClick={handleSummaryClick}
               className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
             >
-              📊 Day summary
+              {isLLMConfigured ? '📊 Day summary' : '📋 Copy summary prompt'}
             </button>
           </div>
         )}

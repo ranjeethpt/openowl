@@ -5,7 +5,7 @@ import { getPrompt } from '../../prompts/registry.js';
 /**
  * Ask component - AI chat with browser context awareness + templates
  */
-function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured }) {
+function Ask({ messages, onMessagesChange, onNavigateToSettings, isLLMConfigured }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -210,6 +210,22 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured })
   async function askAI(question) {
     if (!question.trim()) return;
 
+    // If LLM not configured, show helper message instead of calling API
+    if (!isLLMConfigured) {
+      // Add user message
+      const userMessage = { role: 'user', text: question };
+      onMessagesChange(prev => [...prev, userMessage]);
+
+      // Add system message explaining configuration needed
+      const systemMessage = {
+        role: 'assistant',
+        text: 'LLM not configured',
+        isConfigPrompt: true
+      };
+      onMessagesChange(prev => [...prev, systemMessage]);
+      return;
+    }
+
     // Add user message if not already there (autoRun case adds it first)
     const lastMessage = messages[messages.length - 1];
     let currentMessages = messages;
@@ -332,7 +348,7 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured })
    */
   function handleTemplateClick(template) {
     // Don't allow running templates without API key
-    if (!isConfigured) {
+    if (!isLLMConfigured) {
       showToast('Add API key in Settings to send directly', true);
       return;
     }
@@ -380,19 +396,16 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured })
   return (
     <div className="flex flex-col h-full" style={{ overflow: 'hidden' }}>
       {/* API Key Banner - only show when not configured */}
-      {!isConfigured && (
-        <div className="px-4 py-3 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-300 flex items-center justify-between flex-shrink-0 shadow-sm">
-          <div className="flex items-center gap-2 flex-1">
-            <span className="text-base">✨</span>
-            <span className="text-sm font-medium text-gray-800">
-              Add an API key to get AI responses inline
-            </span>
-          </div>
+      {!isLLMConfigured && (
+        <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between flex-shrink-0">
+          <span className="text-xs text-amber-800">
+            LLM not configured. Responses will not work yet.
+          </span>
           <button
             onClick={onNavigateToSettings}
-            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded transition-colors shadow-sm"
+            className="text-xs text-amber-700 hover:text-amber-800 font-medium underline"
           >
-            Add API Key →
+            Go to Settings
           </button>
         </div>
       )}
@@ -448,13 +461,13 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured })
                   <div key={t.label} className="flex flex-col gap-1">
                     <button
                       onClick={() => handleTemplateClick(t)}
-                      disabled={!isConfigured}
+                      disabled={!isLLMConfigured}
                       className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                        isConfigured
+                        isLLMConfigured
                           ? 'bg-gray-100 hover:bg-owl-blue/10 text-gray-700'
                           : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       }`}
-                      title={!isConfigured ? 'Add API key to use' : ''}
+                      title={!isLLMConfigured ? 'Add API key to use' : ''}
                     >
                       {t.label}
                     </button>
@@ -549,7 +562,27 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured })
                       : 'bg-white text-gray-900 border border-gray-200'
                   }`}
                 >
-                  <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
+                  {/* Config prompt message - special handling */}
+                  {msg.isConfigPrompt ? (
+                    <div className="text-sm">
+                      <div className="font-semibold text-gray-900 mb-2">LLM not configured</div>
+                      <p className="text-gray-700 mb-3 leading-relaxed">
+                        To get responses here, add an API key in Settings.
+                      </p>
+                      <p className="text-gray-700 mb-3 leading-relaxed">
+                        If you prefer, use <span className="font-semibold">Copy prompt</span> on any template button
+                        to build your prompt with real data and paste it into ChatGPT, Gemini, or Claude.ai.
+                      </p>
+                      <button
+                        onClick={onNavigateToSettings}
+                        className="px-3 py-1.5 bg-owl-blue text-white text-xs font-medium rounded hover:bg-owl-blue/90 transition-colors"
+                      >
+                        Go to Settings →
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
+                  )}
 
                   {/* Settings link for error messages */}
                   {msg.role === 'error' && (
@@ -631,32 +664,32 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isConfigured })
         />
         <button
           className={`mt-2 px-4 py-2 rounded-lg w-full font-medium transition-colors flex items-center justify-center gap-2 ${
-            !isConfigured
+            !isLLMConfigured
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : loading || !input.trim()
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-owl-blue text-white hover:bg-owl-blue/90'
           }`}
           onClick={() => {
-            if (isConfigured) {
+            if (isLLMConfigured) {
               askAI(input);
             } else {
               showToast('Add API key in Settings to send directly', true);
             }
           }}
-          disabled={!isConfigured || loading || !input.trim()}
-          title={!isConfigured ? 'Add API key in Settings to send directly' : ''}
+          disabled={!isLLMConfigured || loading || !input.trim()}
+          title={!isLLMConfigured ? 'Add API key in Settings to send directly' : ''}
         >
           {loading ? (
             'Thinking...'
           ) : (
             <>
-              {!isConfigured && <span className="text-lg">🔒</span>}
+              {!isLLMConfigured && <span className="text-lg">🔒</span>}
               <span>Ask</span>
             </>
           )}
         </button>
-        {!isConfigured && (
+        {!isLLMConfigured && (
           <p className="text-xs text-gray-500 mt-2 text-center">
             💡 Use <span className="font-semibold">Copy prompt</span> on quick actions to paste into any AI chat
           </p>

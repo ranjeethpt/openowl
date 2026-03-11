@@ -52,8 +52,8 @@ function validateApiKey(provider, key) {
 /**
  * Settings component - API key management
  */
-function Settings({ onSave }) {
-  const [provider, setProvider] = useState(PROVIDERS.CLAUDE);
+function Settings({ onSave, isLLMConfigured }) {
+  const [provider, setProvider] = useState(null); // Start with no selection
   const [model, setModel] = useState('claude-sonnet-4-20250514');
   const [apiKey, setApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState({});
@@ -129,7 +129,7 @@ function Settings({ onSave }) {
 
   // When provider changes, update model to first option (but not on initial load)
   useEffect(() => {
-    if (!isInitialLoad) {
+    if (!isInitialLoad && provider) { // Only if provider is selected
       // User manually changed provider - set to first model for that provider
       if (provider === PROVIDERS.OLLAMA) {
         // For Ollama, check connection first
@@ -137,9 +137,9 @@ function Settings({ onSave }) {
       } else {
         setModel(models[provider][0].value);
       }
+      // Update API key for the current provider
+      setApiKey(apiKeys[provider] || '');
     }
-    // Always update API key for the current provider
-    setApiKey(apiKeys[provider] || '');
   }, [provider]);
 
   // Auto-detect Ollama when URL changes (debounced)
@@ -157,18 +157,23 @@ function Settings({ onSave }) {
       const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
       if (response.success) {
         const data = response.data;
-        const selectedProvider = data.selectedProvider || 'claude';
+        const selectedProvider = data.selectedProvider || null; // No fallback - keep null if not set
         setProvider(selectedProvider);
-        setModel(data.selectedModel || models[selectedProvider][0].value);
+
+        // Only set model if provider is selected
+        if (selectedProvider) {
+          setModel(data.selectedModel || models[selectedProvider][0].value);
+          // Set current provider's API key
+          setApiKey(data.apiKeys?.[selectedProvider] || '');
+
+          // If Ollama is selected, check connection
+          if (selectedProvider === 'ollama') {
+            await checkOllamaConnection(data.ollamaUrl || 'http://localhost:11434');
+          }
+        }
+
         setApiKeys(data.apiKeys || {});
         setOllamaUrl(data.ollamaUrl || 'http://localhost:11434');
-        // Set current provider's API key
-        setApiKey(data.apiKeys?.[selectedProvider] || '');
-
-        // If Ollama is selected, check connection
-        if (selectedProvider === 'ollama') {
-          await checkOllamaConnection(data.ollamaUrl || 'http://localhost:11434');
-        }
 
         // Mark initial load as complete
         setIsInitialLoad(false);
@@ -465,9 +470,9 @@ function Settings({ onSave }) {
       <div className="p-6 max-w-2xl mx-auto">
         <h2 className="text-2xl font-bold text-owl-primary mb-6">Settings</h2>
 
-      {/* Welcome Banner */}
+      {/* Welcome Banner - Combined welcome and get started */}
       {!welcomeDismissed && (
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-lg relative">
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg relative">
           <button
             onClick={dismissWelcome}
             className="absolute top-2 right-2 text-blue-400 hover:text-blue-600 text-sm"
@@ -484,7 +489,7 @@ function Settings({ onSave }) {
               <h3 className="text-lg font-semibold text-blue-900 mb-2">
                 Welcome to OpenOwl
               </h3>
-              <p className="text-sm text-blue-800">
+              <p className="text-sm text-blue-800 mb-3 leading-relaxed">
                 OpenOwl watches what you work on and helps you write standups, find things you researched, and understand where your time goes. Your data stays in your control.
               </p>
             </div>
@@ -498,24 +503,35 @@ function Settings({ onSave }) {
           LLM Provider
         </label>
         <select
-          value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-blue"
+          value={provider || ''}
+          onChange={(e) => setProvider(e.target.value || null)}
+          className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-blue ${
+            !provider ? 'border-blue-300 bg-blue-50' : 'border-gray-300'
+          }`}
         >
+          <option value="" disabled>
+            Select your LLM provider
+          </option>
           <option value={PROVIDERS.CLAUDE}>{PROVIDER_NAMES[PROVIDERS.CLAUDE]}</option>
           <option value={PROVIDERS.OPENAI}>{PROVIDER_NAMES[PROVIDERS.OPENAI]}</option>
           <option value={PROVIDERS.GEMINI}>{PROVIDER_NAMES[PROVIDERS.GEMINI]}</option>
           <option value={PROVIDERS.OLLAMA}>{PROVIDER_NAMES[PROVIDERS.OLLAMA]} (Local)</option>
         </select>
+        {!provider && (
+          <p className="mt-1 text-xs text-blue-600">
+            Choose a provider to get started, or use Copy prompt without configuring
+          </p>
+        )}
       </div>
 
-      {/* Model Selection */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Model
-        </label>
+      {/* Model Selection - only show if provider is selected */}
+      {provider && (
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Model
+          </label>
 
-        {provider === PROVIDERS.OLLAMA && !ollamaConnected ? (
+          {provider === PROVIDERS.OLLAMA && !ollamaConnected ? (
           // Ollama not connected - show error message
           <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm font-medium text-yellow-900 mb-2">
@@ -563,10 +579,11 @@ function Settings({ onSave }) {
             )}
           </>
         )}
-      </div>
+        </div>
+      )}
 
       {/* API Key (not needed for Ollama) */}
-      {provider !== 'ollama' && (
+      {provider && provider !== 'ollama' && (
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             API Key
@@ -660,22 +677,24 @@ function Settings({ onSave }) {
         )}
       </div>
 
-      {/* Save Button */}
-      <div className="mb-6">
-        <button
-          onClick={handleSave}
-          disabled={saving || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)}
-          className={`
-            w-full px-4 py-2 rounded-lg font-medium
-            ${saving || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)
-              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              : 'bg-owl-blue text-white hover:bg-owl-blue/90'
-            }
-          `}
-        >
-          {saving ? 'Saving...' : 'Save Settings'}
-        </button>
-      </div>
+      {/* Save Button - only show if provider selected */}
+      {provider && (
+        <div className="mb-6">
+          <button
+            onClick={handleSave}
+            disabled={saving || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)}
+            className={`
+              w-full px-4 py-2 rounded-lg font-medium
+              ${saving || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-owl-blue text-white hover:bg-owl-blue/90'
+              }
+            `}
+          >
+            {saving ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
+      )}
 
       {/* Message */}
       {message.text && (

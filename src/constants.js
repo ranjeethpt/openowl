@@ -15,7 +15,7 @@ export const PROVIDER_NAMES = {
 };
 
 export const DEFAULT_SETTINGS = {
-  selectedProvider: PROVIDERS.OLLAMA,
+  selectedProvider: null, // No default - user must select
   selectedModel: 'claude-sonnet-4-20250514',
   apiKeys: {},
   ollamaUrl: 'http://localhost:11434'
