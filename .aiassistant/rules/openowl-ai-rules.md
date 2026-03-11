@@ -104,6 +104,21 @@ If yes: import it.
 If no: create the abstraction first, then import it.
 Never inline logic that belongs in a shared location.
 
+## UI — Assets and Branding
+
+Never use owl emoji (🦉) in the UI.
+The extension has a real logo.
+
+Use the actual logo image:
+/public/icons/icon48.png for inline use
+/public/icons/icon128.png for larger display
+
+In JSX:
+<img src="/icons/icon48.png" alt="OpenOwl" />
+
+The owl emoji should not be used anywhere like in documentation or 
+README, UI etc.
+
 ## No Magic Strings — Single Source of Truth
 
 Any string that identifies something that already
