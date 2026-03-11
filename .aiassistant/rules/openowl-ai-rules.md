@@ -95,6 +95,15 @@ Show the file first.
 Confirm understanding.
 Then make changes.
 
+Before adding any logic to a component, ask:
+Does a hook already exist for this in hooks/?
+Does a helper already exist in utils/?
+Does a storage function already exist in storage/index.js?
+
+If yes: import it.
+If no: create the abstraction first, then import it.
+Never inline logic that belongs in a shared location.
+
 ## No Magic Strings — Single Source of Truth
 
 Any string that identifies something that already
@@ -142,3 +151,23 @@ Reference that source instead or convert to a proper type or object or JS doc
 If a condition needs a list of things,
 add a property to the thing's definition
 and derive the list from there.
+
+## Shared Hooks — No Duplicate Logic
+
+Before implementing logic in a component, check if
+a hook already exists for it in src/sidebar/hooks/.
+
+Current shared hooks:
+- useCopyPrompt — all copy prompt logic lives here
+- useToast — all toast notifications live here
+
+Never implement copy prompt logic in a component.
+Never implement toast logic in a component.
+Import the hook instead.
+
+If you need similar logic in a new place:
+Check hooks/ first.
+If a hook exists: import it.
+If logic does not exist yet: create a hook, not inline code.
+Never copy-paste logic between components.
+That is how duplicate bugs are born.

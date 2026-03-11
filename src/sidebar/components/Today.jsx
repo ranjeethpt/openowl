@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import { getDisplayName } from '../../content/extractors/registry.js';
-import { getAllTemplates } from '../../prompts/templates.js';
-import { getPrompt } from '../../prompts/registry.js';
+import { useToast } from '../hooks/useToast.jsx';
+import { useCopyPrompt } from '../hooks/useCopyPrompt.js';
 
 /**
  * Today tab - Redesigned to show interpreted meaning, not raw data
  * Three states: First Install, Getting Started, Active
  */
 export default function Today({ onNavigateToAsk, isLLMConfigured }) {
+  const { showToast, ToastContainer } = useToast();
+  const { copyPromptForTemplate } = useCopyPrompt(showToast);
+
   // State detection
   const [appState, setAppState] = useState(null); // 'first_install', 'getting_started', 'active'
   const [loading, setLoading] = useState(true);
@@ -143,7 +146,7 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
   async function handleStandupClick() {
     // If no LLM configured: copy prompt instead
     if (!isLLMConfigured) {
-      await handleCopyPromptForTemplate('standup', 'Standup prompt copied — paste into any AI chat');
+      await copyPromptForTemplate('standup', 'Standup prompt copied — paste into any AI chat');
       return;
     }
 
@@ -153,67 +156,11 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
     }
   }
 
-  /**
-   * Copy prompt to clipboard for any template when LLM not configured
-   */
-  async function handleCopyPromptForTemplate(templateKey, successMessage) {
-    try {
-      // Get all templates
-      const allTemplates = await getAllTemplates();
-      const template = allTemplates.find(t => t.key === templateKey);
-
-      if (!template) {
-        console.error(`Template ${templateKey} not found`);
-        return;
-      }
-
-      // Gather data using the template's gather function
-      const gatherData = await template.gather();
-
-      // Check if data is empty
-      if (gatherData.isEmpty) {
-        showToast('No data to copy for this time range');
-        return;
-      }
-
-      // Build the prompt using getPrompt
-      const promptResult = getPrompt(template.prompt, gatherData);
-
-      // Combine system prompt and user prompt into one readable string
-      const combinedPrompt = promptResult.user
-        ? `${promptResult.system}\n\n${promptResult.user}`
-        : promptResult.system;
-
-      // Copy to clipboard
-      await navigator.clipboard.writeText(combinedPrompt);
-
-      // Show success toast
-      showToast(successMessage);
-    } catch (error) {
-      console.error(`Failed to copy ${templateKey} prompt:`, error);
-      showToast('Could not copy — try again');
-    }
-  }
-
-  /**
-   * Show toast notification
-   */
-  function showToast(message) {
-    // Simple toast implementation - you can enhance this
-    const toastDiv = document.createElement('div');
-    toastDiv.className = 'fixed bottom-4 left-4 right-4 px-4 py-3 bg-green-50 text-green-800 border border-green-200 rounded-lg shadow-lg text-sm z-50';
-    toastDiv.textContent = message;
-    document.body.appendChild(toastDiv);
-
-    setTimeout(() => {
-      document.body.removeChild(toastDiv);
-    }, 3000);
-  }
 
   async function handleSummaryClick() {
     // If no LLM configured: copy prompt instead
     if (!isLLMConfigured) {
-      await handleCopyPromptForTemplate('daySummary', 'Day summary prompt copied — paste into any AI chat');
+      await copyPromptForTemplate('daySummary', 'Day summary prompt copied — paste into any AI chat');
       return;
     }
 
@@ -639,6 +586,7 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
           )}
         </div>
       </div>
+      <ToastContainer />
     </div>
   );
 }

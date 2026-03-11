@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getAllTemplates } from '../../prompts/templates.js';
 import { getPrompt } from '../../prompts/registry.js';
+import { useToast } from '../hooks/useToast.jsx';
+import { useCopyPrompt } from '../hooks/useCopyPrompt.js';
 
 /**
  * Ask component - AI chat with browser context awareness + templates
@@ -16,11 +18,13 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isLLMConfigured
   const [todayStats, setTodayStats] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
-  const [toast, setToast] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const loadingTimers = useRef([]);
-  const toastTimeoutRef = useRef(null);
+
+  // Use unified toast hook
+  const { showToast, ToastContainer } = useToast();
+  const { copyPromptForTemplate } = useCopyPrompt(showToast);
 
   // Auto-run if a new message is added with autoRun flag
   const processedAutoRunRef = useRef(null);
@@ -290,54 +294,12 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isLLMConfigured
     }]);
   }
 
-  /**
-   * Show toast notification
-   */
-  function showToast(message, isError = false) {
-    // Clear existing toast timer
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-
-    setToast({ message, isError });
-
-    // Auto-hide after 3 seconds
-    toastTimeoutRef.current = setTimeout(() => {
-      setToast(null);
-    }, 6000);
-  }
 
   /**
    * Copy prompt to clipboard for manual paste into ChatGPT/Gemini
    */
   async function handleCopyPrompt(template) {
-    try {
-      // Gather data using the template's gather function
-      const gatherData = await template.gather();
-
-      // Check if data is empty
-      if (gatherData.isEmpty) {
-        showToast('No data to copy for this time range', true);
-        return;
-      }
-
-      // Build the prompt using getPrompt
-      const promptResult = getPrompt(template.prompt, gatherData);
-
-      // Combine system prompt and user prompt into one readable string
-      const combinedPrompt = promptResult.user
-        ? `${promptResult.system}\n\n${promptResult.user}`
-        : promptResult.system;
-
-      // Copy to clipboard
-      await navigator.clipboard.writeText(combinedPrompt);
-
-      // Show success toast
-      showToast('Prompt copied — paste into ChatGPT or Gemini or any AI chat');
-    } catch (error) {
-      console.error('Failed to copy prompt:', error);
-      showToast('Could not copy — try again', true);
-    }
+    await copyPromptForTemplate(template);
   }
 
   /**
@@ -697,15 +659,7 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isLLMConfigured
       </div>
 
       {/* Toast notification */}
-      {toast && (
-        <div className={`fixed bottom-4 left-4 right-4 px-4 py-3 rounded-lg shadow-lg text-sm ${
-          toast.isError
-            ? 'bg-red-50 text-red-800 border border-red-200'
-            : 'bg-green-50 text-green-800 border border-green-200'
-        }`}>
-          {toast.message}
-        </div>
-      )}
+      <ToastContainer />
     </div>
   );
 }

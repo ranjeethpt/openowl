@@ -364,7 +364,87 @@ console.log('🗑️ All OpenOwl data cleared')
 > **Note:** After clearing, reload the extension from `chrome://extensions` to reinitialise defaults.
 
 ---
+### Inspect Live Entries With Extracted Content
+Step through every live entry and see exactly what OpenOwl captured — URL, title, page content, copied snippets, and active time. Useful for verifying extractors are working correctly:
 
+```javascript
+const db = await new Promise(r => {
+   const req = indexedDB.open('openowl-db')
+   req.onsuccess = e => r(e.target.result)
+})
+const all = await new Promise(r => {
+   const req = db.transaction('dayLogs', 'readonly').objectStore('dayLogs').getAll()
+   req.onsuccess = e => r(e.target.result)
+})
+const live = all
+        .filter(e => e.source !== 'history_import')
+        .sort((a, b) => b.visitedAt - a.visitedAt)
+live.forEach(e => {
+   console.group(`${new Date(e.visitedAt).toLocaleTimeString()} — ${e.domain}`)
+   console.log('URL:', e.url)
+   console.log('Title:', e.title)
+   console.log('Content:', e.content || '(none)')
+   console.log('Copied:', e.copied?.length ? e.copied : '(none)')
+   console.log('Active:', Math.round((e.activeTime || 0) / 1000) + 's')
+   console.groupEnd()
+})
+```
+
+---
+### Live Entries Table View
+
+Quick scannable table of all live entries — good for spotting missing content, zero active times, or domains that should not be tracked:
+
+
+```javascript
+const db = await new Promise(r => {
+   const req = indexedDB.open('openowl-db')
+   req.onsuccess = e => r(e.target.result)
+})
+const all = await new Promise(r => {
+   const req = db.transaction('dayLogs', 'readonly').objectStore('dayLogs').getAll()
+   req.onsuccess = e => r(e.target.result)
+})
+console.table(
+        all
+                .filter(e => e.source !== 'history_import')
+                .sort((a, b) => b.visitedAt - a.visitedAt)
+                .map(e => ({
+                   time: new Date(e.visitedAt).toLocaleTimeString(),
+                   domain: e.domain,
+                   title: e.title?.slice(0, 50),
+                   content: e.content ? e.content.slice(0, 80) + '...' : '(none)',
+                   activeTime: Math.round((e.activeTime || 0) / 1000) + 's',
+                   copied: e.copied?.length || 0
+                }))
+)
+```
+
+---
+### Inspect Extracted Content For A Specific Domain
+Check what OpenOwl captured from a single site — useful when building or debugging a site extractor:
+```javascript
+// 
+const domain = 'github.com' // change this
+const db = await new Promise(r => {
+   const req = indexedDB.open('openowl-db')
+   req.onsuccess = e => r(e.target.result)
+})
+const all = await new Promise(r => {
+   const req = db.transaction('dayLogs', 'readonly').objectStore('dayLogs').getAll()
+   req.onsuccess = e => r(e.target.result)
+})
+all
+        .filter(e => e.source !== 'history_import' && e.domain === domain)
+        .forEach(e => {
+           console.log('---')
+           console.log('URL:', e.url)
+           console.log('Content:', e.content)
+           console.log('Copied:', e.copied)
+        })
+```
+
+---
 ### Count Entries By Date
 
 Quickly see how many log entries exist per day — useful for verifying history import or day logging:
@@ -380,10 +460,14 @@ const logs = await new Promise(r => {
   req.onsuccess = e => r(e.target.result)
 })
 const byDate = logs.reduce((acc, e) => {
-  acc[e.date] = (acc[e.date] || 0) + 1
-  return acc
+   acc[e.date] = (acc[e.date] || 0) + 1
+   return acc
 }, {})
-console.table(byDate)
+
+const sorted = Object.fromEntries(
+        Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0]))
+)
+console.table(sorted)
 ```
 
 ---
