@@ -473,7 +473,7 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
             <div className="flex gap-2">
               <button
                 onClick={handleStandupClick}
-                className="flex-1 text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
+                className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
               >
                 {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
               </button>
@@ -489,7 +489,7 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
           <div className="m-4 flex gap-2">
             <button
               onClick={handleStandupClick}
-              className="flex-1 text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
+              className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
             >
               {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
             </button>
