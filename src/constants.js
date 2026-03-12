@@ -88,3 +88,11 @@ export const DEFAULT_PREFERENCES = {
   insightCacheTtlMs: 12 * 60 * 60 * 1000, // 12 hours - cache TTL for LLM insights
   defaultHistoryImportDays: 30 // Default lookback period for history import
 };
+
+// Activity tab stats configuration
+export const STATS_CONFIG = {
+  lookbackDays: 14, // Stats window: last 14 days
+  topDomainsLimit: 5, // Show top 5 domains for each stat
+  leastVisitedLimit: 5, // Show up to 5 least visited domains
+  leastVisitedMaxVisits: 10 // Only show domains with <= 10 visits (filter out frequent sites)
+};
