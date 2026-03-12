@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { getDisplayName } from '../../content/extractors/registry.js';
+import { STATS_CONFIG } from '../../constants.js';
 
 /**
- * Today tab - Clean data view with work history
+ * Activity tab - Clean data view with stats and work history
+ * Shows: Last 14 days stats (most visited, most active, new discoveries) + chronological work history
  * Three states: First Install, Getting Started, Active
  */
-export default function Today() {
+export default function Activity() {
 
   // State detection
   const [appState, setAppState] = useState(null); // 'first_install', 'getting_started', 'active'
@@ -168,6 +170,66 @@ export default function Today() {
     chrome.tabs.create({ url });
   }
 
+  // Calculate stats for configured lookback period
+  function calculateStats() {
+    if (workHistoryEntries.length === 0) return null;
+
+    // Filter entries from configured lookback period
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - STATS_CONFIG.lookbackDays);
+    const lookbackDateStr = lookbackDate.toISOString().split('T')[0];
+
+    const recentEntries = workHistoryEntries.filter(entry => entry.date >= lookbackDateStr);
+
+    if (recentEntries.length === 0) return null;
+
+    // Most Visited - count entries per domain
+    const visitCounts = {};
+    recentEntries.forEach(entry => {
+      visitCounts[entry.domain] = (visitCounts[entry.domain] || 0) + 1;
+    });
+
+    const mostVisited = Object.entries(visitCounts)
+      .map(([domain, count]) => ({ domain, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, STATS_CONFIG.topDomainsLimit);
+
+    // Most Active - sum active time per domain (only for live entries with activeTime)
+    const activeTimes = {};
+    recentEntries
+      .filter(entry => entry.source !== 'history_import' && entry.activeTime > 0)
+      .forEach(entry => {
+        activeTimes[entry.domain] = (activeTimes[entry.domain] || 0) + entry.activeTime;
+      });
+
+    const mostActive = Object.entries(activeTimes)
+      .map(([domain, time]) => ({ domain, time }))
+      .sort((a, b) => b.time - a.time)
+      .slice(0, STATS_CONFIG.topDomainsLimit);
+
+    // Least Visited - domains with fewest visits (interesting discoveries)
+    // Only show domains with low visit count to filter out regular sites
+    const leastVisited = Object.entries(visitCounts)
+      .map(([domain, count]) => ({ domain, count }))
+      .filter(item => item.count <= STATS_CONFIG.leastVisitedMaxVisits) // Filter out frequently visited
+      .sort((a, b) => a.count - b.count) // Sort ascending (least first)
+      .slice(0, STATS_CONFIG.leastVisitedLimit);
+
+    return {
+      mostVisited,
+      mostActive,
+      leastVisited
+    };
+  }
+
+  function formatTime(ms) {
+    const minutes = Math.floor(ms / 60000);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -195,6 +257,7 @@ export default function Today() {
   if (appState === 'first_install') {
     const displayEntries = showMore ? historyEntries : historyEntries.slice(0, 30);
     const groupedEntries = groupEntriesByDate(displayEntries);
+    const stats = calculateStats();
 
     return (
       <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -216,6 +279,64 @@ export default function Today() {
               <span className="font-semibold text-gray-700">Never Track</span> filters are active — personal sites (YouTube, Netflix, social media) won't appear here. Manage in Settings.
             </p>
           </div>
+
+          {/* Stats Section */}
+          {stats && (
+            <div className="mx-4 mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                📊 Last {STATS_CONFIG.lookbackDays} Days
+              </h3>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Most Visited */}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-2">Most Visited</p>
+                  <div className="space-y-1">
+                    {stats.mostVisited.map(({ domain, count }) => (
+                      <div key={domain} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700 truncate flex-1">{getDisplayName(domain)}</span>
+                        <span className="text-gray-500 ml-2">({count})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Most Active - won't show for fresh install with only imported history */}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-2">Most Active</p>
+                  {stats.mostActive.length > 0 ? (
+                    <div className="space-y-1">
+                      {stats.mostActive.map(({ domain, time }) => (
+                        <div key={domain} className="flex items-center justify-between text-xs">
+                          <span className="text-gray-700 truncate flex-1">{getDisplayName(domain)}</span>
+                          <span className="text-gray-500 ml-2">({formatTime(time)})</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">Based on tracked activity</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Least Visited */}
+              {stats.leastVisited.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-300">
+                  <p className="text-xs font-medium text-gray-600 mb-2">
+                    Least Visited <span className="text-gray-400 font-normal">(interesting discoveries)</span>
+                  </p>
+                  <div className="space-y-1">
+                    {stats.leastVisited.map(({ domain, count }) => (
+                      <div key={domain} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700 truncate flex-1">{getDisplayName(domain)}</span>
+                        <span className="text-gray-500 ml-2">({count})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Recent Work */}
           <div className="px-4 pb-4">
@@ -271,6 +392,7 @@ export default function Today() {
   // STATE 3: Active
   const filteredEntries = filterEntries(workHistoryEntries);
   const groupedEntries = groupEntriesByDate(filteredEntries);
+  const stats = calculateStats();
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -281,6 +403,64 @@ export default function Today() {
             <span className="font-semibold text-gray-700">Never Track</span> filters are active — personal sites (YouTube, Netflix, social media) won't appear here. Manage in Settings.
           </p>
         </div>
+
+        {/* Stats Section */}
+        {stats && (
+          <div className="mx-4 mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              📊 Last {STATS_CONFIG.lookbackDays} Days
+            </h3>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Most Visited */}
+              <div>
+                <p className="text-xs font-medium text-gray-600 mb-2">Most Visited</p>
+                <div className="space-y-1">
+                  {stats.mostVisited.map(({ domain, count }) => (
+                    <div key={domain} className="flex items-center justify-between text-xs">
+                      <span className="text-gray-700 truncate flex-1">{getDisplayName(domain)}</span>
+                      <span className="text-gray-500 ml-2">({count})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Most Active */}
+              <div>
+                <p className="text-xs font-medium text-gray-600 mb-2">Most Active</p>
+                {stats.mostActive.length > 0 ? (
+                  <div className="space-y-1">
+                    {stats.mostActive.map(({ domain, time }) => (
+                      <div key={domain} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700 truncate flex-1">{getDisplayName(domain)}</span>
+                        <span className="text-gray-500 ml-2">({formatTime(time)})</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">Based on tracked activity</p>
+                )}
+              </div>
+            </div>
+
+            {/* Least Visited */}
+            {stats.leastVisited.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-300">
+                <p className="text-xs font-medium text-gray-600 mb-2">
+                  Least Visited <span className="text-gray-400 font-normal">(interesting discoveries)</span>
+                </p>
+                <div className="space-y-1">
+                  {stats.leastVisited.map(({ domain, count }) => (
+                    <div key={domain} className="flex items-center justify-between text-xs">
+                      <span className="text-gray-700 truncate flex-1">{getDisplayName(domain)}</span>
+                      <span className="text-gray-500 ml-2">({count})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Work History Section */}
         <div className="px-4 pb-4">

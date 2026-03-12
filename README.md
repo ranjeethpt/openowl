@@ -146,7 +146,7 @@ openowl/
 │   ├── content/             # Content scripts + extractors
 │   │   └── extractors/      # Site-specific content extractors
 │   ├── sidebar/             # React UI
-│   │   └── components/      # Ask, Today, Settings
+│   │   └── components/      # Ask, Activity, Settings
 │   ├── prompts/             # LLM prompt system
 │   │   ├── registry.js      # All prompts defined here
 │   │   └── templates.js     # Template definitions

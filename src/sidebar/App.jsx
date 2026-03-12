@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Settings from './components/Settings';
 import Ask from './components/Ask';
-import Today from './components/Today';
+import Activity from './components/Activity';
 
 /**
  * Main sidebar app component
@@ -137,10 +137,10 @@ function App() {
             Ask
           </TabButton>
           <TabButton
-            active={currentView === 'today'}
-            onClick={() => setCurrentView('today')}
+            active={currentView === 'activity'}
+            onClick={() => setCurrentView('activity')}
           >
-            Today
+            Activity
           </TabButton>
           <TabButton
             active={currentView === 'settings'}
@@ -162,7 +162,7 @@ function App() {
               isLLMConfigured={isConfigured}
             />
           )}
-          {currentView === 'today' && <Today />}
+          {currentView === 'activity' && <Activity />}
           {currentView === 'settings' && (
             <Settings
               onSave={checkConfiguration}

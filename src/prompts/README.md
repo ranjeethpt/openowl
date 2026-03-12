@@ -61,7 +61,7 @@ All AI instructions are centralized here for:
 │  │                                       │  │
 │  │ Without Templates (internal use):     │  │
 │  │ • ask          (general queries)      │  │
-│  │ • dayInsight   (Today tab background) │  │
+│  │ • dayInsight   (Activity tab)         │  │
 │  │ • briefing     (future feature)       │  │
 │  │ • continueWork (future feature)       │  │
 │  │ • patternInsight (future feature)     │  │
@@ -174,7 +174,7 @@ export const TEMPLATES = {
 | `meetingPrep` | Prepare for meeting | ✅ Built-in | todayLog, yesterdayLog, tabs, question |
 | `weekSummary` | Weekly wrap-up | ✅ Built-in | weekLog, hasActivity, isHistoryOnly |
 | `customTemplate` | User-created templates | ✅ Custom (∞) | entries, tabs, config |
-| `dayInsight` | Today tab insights | ❌ | dayLog, stats |
+| `dayInsight` | Activity tab insights | ❌ | dayLog, stats |
 | `briefing` | Morning briefing | ❌ | yesterdayLog, todaySchedule |
 | `continueWork` | Resume work session | ❌ | pages, lastSession |
 | `patternInsight` | Work pattern insights | ❌ | patterns, weekLog |

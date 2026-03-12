@@ -32,7 +32,7 @@ export class YourSiteExtractor extends BaseSiteExtractor {
   }
 
   get name() {
-    return 'YourSite';  // Short display name — used in Today tab and standup output
+    return 'YourSite';  // Short display name — used in Activity tab and standup output
   }
 
   extract() {
@@ -298,7 +298,7 @@ Not all prompts need templates!
 | Scenario | Needs Template? | Example |
 |----------|----------------|---------|
 | User-facing button in Ask tab | ✅ Yes | "✍️ Write standup" |
-| Background process | ❌ No | Today tab insights |
+| Background process | ❌ No | Activity tab insights |
 | General query handler | ❌ No | `ask` prompt |
 | Future feature | ❌ No | Not yet in UI |
 
@@ -548,7 +548,7 @@ Before submitting a PR, verify the following manually:
 - [ ] No console errors
 - [ ] Works with at least one LLM provider (Claude or Ollama)
 - [ ] Tab count shows correctly in Ask tab
-- [ ] Today tab still loads correctly
+- [ ] Activity tab still loads correctly
 - [ ] Settings save and persist after reload
 
 ---
