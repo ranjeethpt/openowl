@@ -421,24 +421,31 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isLLMConfigured
                 .filter(t => t.type === 'auto' && !t.isCustom)
                 .map(t => (
                   <div key={t.label} className="flex flex-col gap-1">
+                    {/* Main action button - primary when LLM configured */}
                     <button
                       onClick={() => handleTemplateClick(t)}
                       disabled={!isLLMConfigured}
-                      className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                      className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
                         isLLMConfigured
-                          ? 'bg-gray-100 hover:bg-owl-blue/10 text-gray-700'
+                          ? 'bg-owl-blue text-white hover:bg-owl-blue/90'
                           : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       }`}
                       title={!isLLMConfigured ? 'Add API key to use' : ''}
                     >
                       {t.label}
                     </button>
+                    {/* Copy prompt - secondary/subtle when LLM configured */}
                     {t.copyable && (
                       <button
                         onClick={() => handleCopyPrompt(t)}
-                        className="px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded font-medium transition-colors"
+                        className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                          isLLMConfigured
+                            ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                            : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 font-medium'
+                        }`}
+                        title="Copy prompt to clipboard"
                       >
-                        📋 Copy prompt
+                        {isLLMConfigured ? '📋 Copy' : '📋 Copy prompt'}
                       </button>
                     )}
                   </div>

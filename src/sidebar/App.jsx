@@ -162,17 +162,7 @@ function App() {
               isLLMConfigured={isConfigured}
             />
           )}
-          {currentView === 'today' && (
-            <Today
-              onNavigateToAsk={(prompt) => {
-                setCurrentView('ask');
-                if (prompt) {
-                  setChatMessages(prev => [...prev, { role: 'user', text: prompt, autoRun: true }]);
-                }
-              }}
-              isLLMConfigured={isConfigured}
-            />
-          )}
+          {currentView === 'today' && <Today />}
           {currentView === 'settings' && (
             <Settings
               onSave={checkConfiguration}

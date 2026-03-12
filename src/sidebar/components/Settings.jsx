@@ -585,9 +585,20 @@ function Settings({ onSave, isLLMConfigured }) {
       {/* API Key (not needed for Ollama) */}
       {provider && provider !== 'ollama' && (
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            API Key
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">
+              API Key
+            </label>
+            {apiKey && (
+              <button
+                type="button"
+                onClick={() => setApiKey('')}
+                className="text-xs text-red-500 hover:text-red-600"
+              >
+                Clear key
+              </button>
+            )}
+          </div>
           <div className="relative">
             <input
               type={showApiKey ? 'text' : 'password'}
@@ -608,7 +619,11 @@ function Settings({ onSave, isLLMConfigured }) {
               {showApiKey ? 'Hide' : 'Show'}
             </button>
           </div>
-          {apiKey && !validateApiKey(provider, apiKey) ? (
+          {!apiKey ? (
+            <p className="mt-1 text-xs text-gray-500">
+              No API key — Save to use copy-only mode
+            </p>
+          ) : apiKey && !validateApiKey(provider, apiKey) ? (
             <p className="mt-1 text-xs text-red-600">
               ⚠ Key format may be incorrect. Expected format: {getApiKeyFormat(provider)}
             </p>
@@ -682,10 +697,10 @@ function Settings({ onSave, isLLMConfigured }) {
         <div className="mb-6">
           <button
             onClick={handleSave}
-            disabled={saving || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)}
+            disabled={saving || (provider === PROVIDERS.OLLAMA && !ollamaConnected)}
             className={`
               w-full px-4 py-2 rounded-lg font-medium
-              ${saving || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)
+              ${saving || (provider === PROVIDERS.OLLAMA && !ollamaConnected)
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-owl-blue text-white hover:bg-owl-blue/90'
               }
