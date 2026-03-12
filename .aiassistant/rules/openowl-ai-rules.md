@@ -186,3 +186,51 @@ If a hook exists: import it.
 If logic does not exist yet: create a hook, not inline code.
 Never copy-paste logic between components.
 That is how duplicate bugs are born.
+
+## Constants — No Inline Magic Values
+
+Any value that controls behaviour and might
+ever need to change belongs in a constants file.
+Never inline it at the point of use.
+
+File: src/constants.js
+This is the single source for all magic values.
+
+Examples of what goes in constants:
+
+THRESHOLDS:
+Wrong:  if (liveEntries.length < 3)
+Right:  if (liveEntries.length < BRIEFING_THRESHOLD)
+
+Wrong:  if (activeTime > 10000)
+Right:  if (activeTime > MIN_ACTIVE_TIME_MS)
+
+Wrong:  slice(0, 50)
+Right:  slice(0, MAX_HISTORY_ENTRIES)
+
+Wrong:  setTimeout(hide, 3000)
+Right:  setTimeout(hide, TOAST_DURATION_MS)
+
+DEFAULTS:
+Wrong:  retention: 30
+Right:  retention: DEFAULT_RETENTION_DAYS
+
+Wrong:  maxLength: 2000
+Right:  maxLength: MAX_PAGE_CONTENT_CHARS
+
+Wrong:  maxTabs: 8
+Right:  maxTabs: MAX_TABS_SENT_TO_LLM
+
+Wrong:  n: 7 (in last_n_days)
+Right:  n: DEFAULT_HISTORY_DAYS
+
+RULE OF THUMB:
+If a number or string controls behaviour
+and you had to think about what value to use,
+it belongs in constants.js not inline.
+If it changes in one place it should
+change everywhere automatically.
+
+Current constants that already exist
+must be imported from constants.js.
+Never redeclare them locally.
