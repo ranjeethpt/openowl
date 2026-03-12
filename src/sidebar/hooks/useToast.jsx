@@ -16,17 +16,17 @@ export function useToast() {
 
     setToast({ message, isError });
 
-    // Auto-hide after 3 seconds
+    // Auto-hide after 2 seconds
     timeoutRef.current = setTimeout(() => {
       setToast(null);
-    }, 3000);
+    }, 2000);
   }
 
   function ToastContainer() {
     if (!toast) return null;
 
     return (
-      <div className={`fixed bottom-4 left-4 right-4 px-4 py-3 rounded-lg shadow-lg text-sm z-50 ${
+      <div className={`fixed top-4 left-4 right-4 px-4 py-3 rounded-lg shadow-lg text-sm z-50 ${
         toast.isError
           ? 'bg-red-50 text-red-800 border border-red-200'
           : 'bg-green-50 text-green-800 border border-green-200'
