@@ -1,15 +1,11 @@
 import { useState, useEffect } from 'react';
 import { getDisplayName } from '../../content/extractors/registry.js';
-import { useToast } from '../hooks/useToast.jsx';
-import { useCopyPrompt } from '../hooks/useCopyPrompt.js';
 
 /**
- * Today tab - Redesigned to show interpreted meaning, not raw data
+ * Today tab - Clean data view with work history
  * Three states: First Install, Getting Started, Active
  */
-export default function Today({ onNavigateToAsk, isLLMConfigured }) {
-  const { showToast, ToastContainer } = useToast();
-  const { copyPromptForTemplate } = useCopyPrompt(showToast);
+export default function Today() {
 
   // State detection
   const [appState, setAppState] = useState(null); // 'first_install', 'getting_started', 'active'
@@ -20,18 +16,13 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
   const [historyImportCount, setHistoryImportCount] = useState(0);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [workHistoryEntries, setWorkHistoryEntries] = useState([]);
-  const [openTabs, setOpenTabs] = useState([]);
-  const [liveEntriesToday, setLiveEntriesToday] = useState(0);
-  const [lastActivityLog, setLastActivityLog] = useState([]);
 
   // UI state
-  const [briefingDismissed, setBriefingDismissed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
     loadData();
-    checkBriefingDismissal();
   }, []);
 
   async function loadData() {
@@ -102,72 +93,6 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
     if (historyResponse.success) {
       setWorkHistoryEntries(historyResponse.data);
     }
-
-    // Get open tabs
-    const tabsResponse = await chrome.runtime.sendMessage({
-      type: 'GET_TABS'
-    });
-
-    if (tabsResponse.success) {
-      setOpenTabs(tabsResponse.data || []);
-    }
-
-    // Get live entries today count for briefing condition
-    const liveTodayResponse = await chrome.runtime.sendMessage({
-      type: 'GET_LIVE_ENTRIES_TODAY_COUNT'
-    });
-
-    if (liveTodayResponse.success) {
-      setLiveEntriesToday(liveTodayResponse.data);
-    }
-
-    // Get last activity log for briefing
-    const lastActivityResponse = await chrome.runtime.sendMessage({
-      type: 'GET_LAST_ACTIVITY_LOG'
-    });
-
-    if (lastActivityResponse.success) {
-      setLastActivityLog(lastActivityResponse.data || []);
-    }
-  }
-
-  async function checkBriefingDismissal() {
-    const today = new Date().toISOString().split('T')[0];
-    const result = await chrome.storage.local.get(`briefing_dismissed_${today}`);
-    setBriefingDismissed(!!result[`briefing_dismissed_${today}`]);
-  }
-
-  async function dismissBriefing() {
-    const today = new Date().toISOString().split('T')[0];
-    await chrome.storage.local.set({ [`briefing_dismissed_${today}`]: true });
-    setBriefingDismissed(true);
-  }
-
-  async function handleStandupClick() {
-    // If no LLM configured: copy prompt instead
-    if (!isLLMConfigured) {
-      await copyPromptForTemplate('standup', 'Standup prompt copied — paste into any AI chat');
-      return;
-    }
-
-    // Otherwise navigate to Ask tab and run standup
-    if (onNavigateToAsk) {
-      onNavigateToAsk('Write my daily standup');
-    }
-  }
-
-
-  async function handleSummaryClick() {
-    // If no LLM configured: copy prompt instead
-    if (!isLLMConfigured) {
-      await copyPromptForTemplate('daySummary', 'Day summary prompt copied — paste into any AI chat');
-      return;
-    }
-
-    // Otherwise navigate to Ask tab and run summary
-    if (onNavigateToAsk) {
-      onNavigateToAsk('Give me a detailed summary of my workday');
-    }
   }
 
   function formatTime(timestamp) {
@@ -205,53 +130,6 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
     return `${dayOfWeek}, ${dayMonth}`;
   }
 
-  function formatLastActivityLabel(dateStr) {
-    if (!dateStr) return 'recently';
-
-    // Parse the date string as local date (not UTC)
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const activityDate = new Date(year, month - 1, day);
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    const daysAgo = Math.floor((today - activityDate) / (1000 * 60 * 60 * 24));
-
-    if (daysAgo === 1) return 'Yesterday';
-    if (daysAgo === 2 || daysAgo === 3) {
-      return activityDate.toLocaleDateString('en-US', { weekday: 'long' });
-    }
-    if (daysAgo >= 4) {
-      return activityDate.toLocaleDateString('en-US', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'short'
-      });
-    }
-
-    return 'recently';
-  }
-
-  function getMostFrequentDomain() {
-    if (openTabs.length === 0) return null;
-
-    const domainCounts = {};
-    openTabs.forEach(tab => {
-      const url = new URL(tab.url);
-      const domain = url.hostname;
-      domainCounts[domain] = (domainCounts[domain] || 0) + 1;
-    });
-
-    const entries = Object.entries(domainCounts);
-    const maxCount = Math.max(...entries.map(([_, count]) => count));
-
-    if (maxCount >= 3) {
-      const [domain] = entries.find(([_, count]) => count === maxCount);
-      return { domain, count: maxCount };
-    }
-
-    return null;
-  }
 
   function filterEntries(entries) {
     if (!searchQuery) return entries;
@@ -285,14 +163,6 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
     }));
   }
 
-  function shouldShowBriefing() {
-    return (
-      appState === 'active' &&
-      lastActivityLog.length > 0 &&
-      liveEntriesToday < 3 &&
-      !briefingDismissed
-    );
-  }
 
   function openUrl(url) {
     chrome.tabs.create({ url });
@@ -314,15 +184,9 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
         <h2 className="text-xl font-semibold text-gray-800 mb-2">
           OpenOwl is ready
         </h2>
-        <p className="text-gray-600 text-sm max-w-md mb-6">
-          Browse normally and come back. Your standup and history will build up through the day.
+        <p className="text-gray-600 text-sm max-w-md">
+          Browse normally and come back. Your work history will build up through the day.
         </p>
-        <button
-          onClick={handleStandupClick}
-          className="text-sm px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
-        >
-          {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
-        </button>
       </div>
     );
   }
@@ -340,21 +204,16 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               Ready from day one
             </h2>
-            <p className="text-gray-700 mb-4 leading-relaxed">
+            <p className="text-gray-700 leading-relaxed">
               We found <span className="font-semibold">{historyImportCount} pages</span> from your last 30 days.
-              OpenOwl already knows what you have been working on.
+              OpenOwl already knows what you've been working on.
             </p>
-            <button
-              onClick={handleStandupClick}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition shadow-sm"
-            >
-              {isLLMConfigured ? '✍️ Write my first standup' : '📋 Build my standup prompt'}
-            </button>
           </div>
 
-          <div className="px-4 py-3">
-            <p className="text-xs text-gray-500 text-center">
-              OpenOwl gets richer as you browse today.
+          {/* Never Track Info */}
+          <div className="mx-4 mt-4 mb-2 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+            <p className="text-xs text-gray-600">
+              <span className="font-semibold text-gray-700">Never Track</span> filters are active — personal sites (YouTube, Netflix, social media) won't appear here. Manage in Settings.
             </p>
           </div>
 
@@ -410,97 +269,18 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
   }
 
   // STATE 3: Active
-  const mostFrequentDomain = getMostFrequentDomain();
   const filteredEntries = filterEntries(workHistoryEntries);
   const groupedEntries = groupEntriesByDate(filteredEntries);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
       <div className="flex-1 overflow-y-auto">
-        {/* Morning Briefing Card */}
-        {shouldShowBriefing() && (() => {
-          const lastActivityDate = lastActivityLog[0]?.date;
-          const lastActivityLabel = formatLastActivityLabel(lastActivityDate);
-
-          return (
-            <div className="m-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">☀️</span>
-                  <h3 className="text-sm font-semibold text-gray-800">
-                    Welcome back
-                  </h3>
-                </div>
-                <button
-                  onClick={dismissBriefing}
-                  className="text-gray-400 hover:text-gray-600 text-sm"
-                >
-                  ✕
-                </button>
-              </div>
-              <p className="text-sm text-gray-700 mb-3">
-                You worked on <span className="font-medium">{lastActivityLabel}</span>. Want a quick recap?
-              </p>
-              <button
-                onClick={handleStandupClick}
-                className="text-sm px-4 py-2 bg-amber-100 hover:bg-amber-200 text-gray-800 rounded transition"
-              >
-                ✍️ Show me
-              </button>
-            </div>
-          );
-        })()}
-
-        {/* Right Now Card */}
-        {openTabs.length > 0 ? (
-          <div className="m-4 p-4 bg-blue-50 border border-blue-100 rounded-lg">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-lg">💻</span>
-              <h3 className="text-sm font-semibold text-gray-800">Right now</h3>
-            </div>
-            <p className="text-sm text-gray-700 mb-4">
-              {mostFrequentDomain ? (
-                <>
-                  <span className="font-medium">{openTabs.length} tabs</span> open,
-                  mostly <span className="font-medium">{getDisplayName(mostFrequentDomain.domain)}</span>
-                </>
-              ) : (
-                <>
-                  <span className="font-medium">{openTabs.length} tabs</span> open
-                </>
-              )}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={handleStandupClick}
-                className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
-              >
-                {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
-              </button>
-              <button
-                onClick={handleSummaryClick}
-                className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
-              >
-                {isLLMConfigured ? '📊 Day summary' : '📋 Copy summary prompt'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="m-4 flex gap-2">
-            <button
-              onClick={handleStandupClick}
-              className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
-            >
-              {isLLMConfigured ? '✍️ Write standup' : '📋 Copy standup prompt'}
-            </button>
-            <button
-              onClick={handleSummaryClick}
-              className="flex-1 text-sm px-4 py-2 bg-blue-100 hover:bg-blue-200 text-gray-800 rounded transition"
-            >
-              {isLLMConfigured ? '📊 Day summary' : '📋 Copy summary prompt'}
-            </button>
-          </div>
-        )}
+        {/* Never Track Info - Always visible */}
+        <div className="mx-4 mt-4 mb-2 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+          <p className="text-xs text-gray-600">
+            <span className="font-semibold text-gray-700">Never Track</span> filters are active — personal sites (YouTube, Netflix, social media) won't appear here. Manage in Settings.
+          </p>
+        </div>
 
         {/* Work History Section */}
         <div className="px-4 pb-4">
@@ -586,7 +366,6 @@ export default function Today({ onNavigateToAsk, isLLMConfigured }) {
           )}
         </div>
       </div>
-      <ToastContainer />
     </div>
   );
 }
