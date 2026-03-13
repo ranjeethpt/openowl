@@ -18,7 +18,8 @@ export const DEFAULT_SETTINGS = {
   selectedProvider: null, // No default - user must select
   selectedModel: 'claude-sonnet-4-20250514',
   apiKeys: {},
-  ollamaUrl: 'http://localhost:11434'
+  ollamaUrl: 'http://localhost:11434',
+  maxTokens: {} // User overrides for prompt token limits (empty = use DEFAULT_MAX_TOKENS)
 };
 
 // Model context window limits (in tokens)
@@ -95,4 +96,22 @@ export const STATS_CONFIG = {
   topDomainsLimit: 5, // Show top 5 domains for each stat
   leastVisitedLimit: 5, // Show up to 5 least visited domains
   leastVisitedMaxVisits: 10 // Only show domains with <= 10 visits (filter out frequent sites)
+};
+
+// Default maxTokens for each prompt type
+// These are safe defaults to prevent truncation while managing costs
+// Users can override these in settings if needed
+export const DEFAULT_MAX_TOKENS = {
+  ask: 1000,           // General questions with full context
+  standup: 800,        // Daily standup with categorization (was 400)
+  summary: 1000,       // End-of-day summary (was 500)
+  briefing: 600,       // Morning briefing (was 400)
+  continueWork: 800,   // Resume work briefing (was 500)
+  patternInsight: 400, // Work pattern insights (was 300)
+  dayInsight: 100,     // One-sentence insight (fine as-is)
+  memorySearch: 500,   // Search work history (was 300)
+  focus: 400,          // Focus recommendation (was 200)
+  meetingPrep: 500,    // Meeting preparation (was 300)
+  customTemplate: 800, // User-defined templates (was 500)
+  weekSummary: 1000    // Weekly wrap (was 500)
 };

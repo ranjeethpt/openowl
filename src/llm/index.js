@@ -294,8 +294,15 @@ async function callGemini({ apiKey, model, prompt, systemPrompt, messages = [], 
     return handleGeminiStream(response, onChunk);
   } else {
     const data = await response.json();
+
+    // Handle edge cases where Gemini returns no content (e.g., MAX_TOKENS with empty response)
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) {
+      throw new Error(`Gemini returned no content: ${data.candidates?.[0]?.finishReason || 'Unknown reason'}`);
+    }
+
     return {
-      text: data.candidates[0].content.parts[0].text,
+      text: content,
       usage: {
         input_tokens: data.usageMetadata?.promptTokenCount || 0,
         output_tokens: data.usageMetadata?.candidatesTokenCount || 0,

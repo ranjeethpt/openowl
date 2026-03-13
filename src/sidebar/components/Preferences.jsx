@@ -89,12 +89,10 @@ export default function Preferences() {
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition"
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition"
       >
-        <h3 className="text-sm font-semibold text-gray-900">
-          What to Track
-        </h3>
-        <span className="text-gray-400">{expanded ? '▲' : '▼'}</span>
+        <span className="font-medium text-gray-900">⚙️ What to Track</span>
+        <span className="text-gray-400 text-sm">{expanded ? '▲' : '▼'}</span>
       </button>
 
       {/* Expanded Content */}

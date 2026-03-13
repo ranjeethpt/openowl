@@ -125,6 +125,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleTestOllamaConnection(sendResponse);
       return true; // Async response
 
+    case 'TEST_API_CONNECTION':
+      handleTestAPIConnection(message.data, sendResponse);
+      return true; // Async response
+
     default:
       console.warn('Unknown message type:', message.type);
       sendResponse({ error: 'Unknown message type' });
@@ -517,8 +521,8 @@ async function handleAskAI(data, sendResponse) {
         ? { ...templateData, config: template.promptConfig }
         : templateData;
 
-      // Purpose-built prompt from registry
-      const builtPrompt = getPrompt(template.prompt, promptContext);
+      // Purpose-built prompt from registry (with settings for maxTokens overrides)
+      const builtPrompt = getPrompt(template.prompt, promptContext, settings);
       const { system, user, maxTokens } = builtPrompt;
 
       // Use the user message from prompt, or fall back to the question
@@ -569,7 +573,7 @@ async function handleAskAI(data, sendResponse) {
       totalTabs: context.totalTabs,
       history: context.history,
       copies: context.copies
-    });
+    }, settings);
 
     const result = await callLLM({
       provider: settings.selectedProvider,
@@ -715,14 +719,14 @@ async function handleGenerateInsight(data, sendResponse) {
       return;
     }
 
-    // Build prompt using registry
+    // Get settings for LLM
+    const settings = await storage.getSettings();
+
+    // Build prompt using registry (with settings for maxTokens overrides)
     const { system, user, maxTokens } = getPrompt('dayInsight', {
       dayLog: filteredLog,
       stats
-    });
-
-    // Get settings for LLM
-    const settings = await storage.getSettings();
+    }, settings);
 
     // Call LLM
     const result = await callLLM({
@@ -1294,6 +1298,36 @@ async function handleTestOllamaConnection(sendResponse) {
     }
   } catch (error) {
     console.warn('Ollama connection test failed:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Test API connection with minimal prompt
+ */
+async function handleTestAPIConnection(data, sendResponse) {
+  try {
+    const { provider, model, apiKey, ollamaUrl } = data;
+
+    // Simple test call - just check if API responds
+    const result = await callLLM({
+      provider,
+      apiKey,
+      model,
+      prompt: 'Hi',
+      systemPrompt: 'Reply with just "OK"',
+      messages: [],
+      maxTokens: 50, // Increased from 10 to avoid MAX_TOKENS errors
+      ollamaUrl
+    });
+
+    if (result) {
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: 'No response from API' });
+    }
+  } catch (error) {
+    console.warn('API connection test failed:', error);
     sendResponse({ success: false, error: error.message });
   }
 }

@@ -46,6 +46,7 @@
  */
 
 import { getDisplayName } from '../content/extractors/registry.js';
+import { DEFAULT_MAX_TOKENS } from '../constants.js';
 
 /**
  * Shared helper for formatting log entries.
@@ -111,6 +112,7 @@ export const PromptRegistry = {
     ask: {
         version: '2.2.0',
         description: 'General questions with full context (tabs + history + copies)',
+        active: true, // Used by Ask tab general questions
 
         /**
          * @param {Object} context
@@ -172,7 +174,7 @@ Rules:
 
             return {
                 system,
-                maxTokens: 1000
+                maxTokens: DEFAULT_MAX_TOKENS.ask
             };
         }
     },
@@ -183,6 +185,7 @@ Rules:
     standup: {
         version: '3.0.0',
         description: 'Generate daily standup grouped by Delivery, Strategy, and Enablement — for any IT role',
+        active: true, // Used by "✍️ Write standup" template
 
         /**
          * @param {Object} context
@@ -221,7 +224,7 @@ Keep it friendly and under 100 words.`;
                 return {
                     system,
                     user: 'Write my standup',
-                    maxTokens: 150
+                    maxTokens: DEFAULT_MAX_TOKENS.standup
                 };
             }
 
@@ -350,7 +353,7 @@ Today:
             return {
                 system,
                 user: 'Write my standup',
-                maxTokens: 400
+                maxTokens: DEFAULT_MAX_TOKENS.standup
             };
         }
     },
@@ -370,6 +373,7 @@ Today:
     summary: {
         version: '2.0.0',
         description: 'End-of-day summary grouped by Delivery, Strategy, and Enablement — for any IT role',
+        active: true, // Used by "📊 Day summary" template
 
         /**
          * @param {Object} context
@@ -433,7 +437,7 @@ Format EXACTLY:
 
             return {
                 system,
-                maxTokens: 500
+                maxTokens: DEFAULT_MAX_TOKENS.summary
             };
         }
     },
@@ -444,6 +448,7 @@ Format EXACTLY:
     briefing: {
         version: '1.1.0',
         description: 'Morning briefing from yesterday plus schedule',
+        active: false, // Future feature - not yet implemented
 
         /**
          * @param {Object} context
@@ -479,7 +484,7 @@ Rules:
 
             return {
                 system,
-                maxTokens: 400
+                maxTokens: DEFAULT_MAX_TOKENS.briefing
             };
         }
     },
@@ -490,6 +495,7 @@ Rules:
     continueWork: {
         version: '1.1.0',
         description: 'Briefing when reopening pages from yesterday',
+        active: false, // Future feature - not yet implemented
 
         /**
          * @param {Object} context
@@ -527,7 +533,7 @@ Rules:
 
             return {
                 system,
-                maxTokens: 500
+                maxTokens: DEFAULT_MAX_TOKENS.continueWork
             };
         }
     },
@@ -538,6 +544,7 @@ Rules:
     patternInsight: {
         version: '1.1.0',
         description: 'Insights about work patterns',
+        active: false, // Future feature - not yet implemented
 
         /**
          * @param {Object} context
@@ -572,7 +579,7 @@ Rules:
 
             return {
                 system,
-                maxTokens: 300
+                maxTokens: DEFAULT_MAX_TOKENS.patternInsight
             };
         }
     },
@@ -583,6 +590,7 @@ Rules:
     dayInsight: {
         version: '3.1.0',
         description: 'Generate one-sentence insight from browsing activity',
+        active: true, // Used by Activity tab for real-time insights
 
         build: (context) => {
             const { dayLog = [], stats = {} } = context;
@@ -632,7 +640,7 @@ Write ONLY one punchy sentence. No fluff.`;
             return {
                 system,
                 user: 'What am I working on?',
-                maxTokens: 100
+                maxTokens: DEFAULT_MAX_TOKENS.dayInsight
             };
         }
     },
@@ -643,6 +651,7 @@ Write ONLY one punchy sentence. No fluff.`;
     memorySearch: {
         version: '1.1.0',
         description: 'Find something from work history',
+        active: true, // Used by "🔍 Remind me of" template
         build: ({ matches, question }) => ({
             system: `You are helping an IT professional find something from their work history.
 
@@ -678,7 +687,7 @@ Rules:
 - Keep under 150 words
 - Offer to search differently if not found`,
             user: question,
-            maxTokens: 300
+            maxTokens: DEFAULT_MAX_TOKENS.memorySearch
         })
     },
 
@@ -688,6 +697,7 @@ Rules:
     focus: {
         version: '2.0.0',
         description: 'Suggest what to focus on next based on open tabs and todays work',
+        active: true, // Used by "🎯 What to focus on" template
         build: ({ tabs, todayLog, copies }) => {
             const tabList = tabs.slice(0, 10).map(t => `- ${t.title}`).join('\n') || 'No tabs open';
             const recentWork = todayLog.slice(0, 10).map(e =>
@@ -746,7 +756,7 @@ Format EXACTLY:
 
 **Don't lose track of:** [Item] — [one-line reason]`,
                 user: 'What should I focus on next?',
-                maxTokens: 200
+                maxTokens: DEFAULT_MAX_TOKENS.focus
             };
         }
     },
@@ -757,6 +767,7 @@ Format EXACTLY:
     meetingPrep: {
         version: '1.1.0',
         description: 'Prep context for an upcoming meeting',
+        active: true, // Used by "📅 Prep for" template
         build: ({ todayLog, yesterdayLog, tabs, question }) => ({
             system: `You are helping an IT professional prepare for a meeting.
 
@@ -783,7 +794,7 @@ Rules:
 - Suggest 2-3 talking points
 - Keep under 150 words`,
             user: question,
-            maxTokens: 300
+            maxTokens: DEFAULT_MAX_TOKENS.meetingPrep
         })
     },
 
@@ -793,6 +804,7 @@ Rules:
     customTemplate: {
         version: '1.1.0',
         description: 'User-created custom template with configurable filters and instructions',
+        active: true, // Used by user-created custom templates
 
         /**
          * @param {Object} context
@@ -897,7 +909,7 @@ Rules:
 
             return {
                 system,
-                maxTokens: 500
+                maxTokens: DEFAULT_MAX_TOKENS.customTemplate
             };
         }
     },
@@ -908,6 +920,7 @@ Rules:
     weekSummary: {
         version: '2.0.0',
         description: 'Weekly summary grouped by Delivery, Strategy, and Enablement — for any IT role',
+        active: true, // Used by "📅 Week wrap" template
 
         /**
          * @param {Object} context
@@ -944,7 +957,7 @@ Max 80 words.`;
                 return {
                     system,
                     user: 'Write my week wrap',
-                    maxTokens: 150
+                    maxTokens: DEFAULT_MAX_TOKENS.weekSummary
                 };
             }
 
@@ -1035,7 +1048,7 @@ Next week:
             return {
                 system,
                 user: 'Write my week wrap',
-                maxTokens: 500
+                maxTokens: DEFAULT_MAX_TOKENS.weekSummary
             };
         }
     }
@@ -1045,13 +1058,15 @@ Next week:
  * Get a prompt by name and build it with context
  * @param {string} name - Prompt name (ask, standup, summary, etc)
  * @param {Object} context - Context for building the prompt
+ * @param {Object} [settings] - Optional settings with maxTokens overrides
  * @returns {PromptResult}
  * @throws {Error} If prompt name not found
  *
  * @example
  * const prompt = getPrompt('standup', { todayLog, yesterdayLog });
+ * const prompt = getPrompt('standup', { todayLog, yesterdayLog }, settings);
  */
-export function getPrompt(name, context = {}) {
+export function getPrompt(name, context = {}, settings = null) {
     const prompt = PromptRegistry[name];
 
     if (!prompt) {
@@ -1067,8 +1082,15 @@ export function getPrompt(name, context = {}) {
     // Validate context (warnings only, never throws)
     validateContext(name, context);
 
-    // Build and return the prompt
-    return prompt.build(context);
+    // Build the prompt
+    const builtPrompt = prompt.build(context);
+
+    // Apply user's maxTokens override if available
+    if (settings?.maxTokens?.[name]) {
+        builtPrompt.maxTokens = settings.maxTokens[name];
+    }
+
+    return builtPrompt;
 }
 
 /**
@@ -1127,14 +1149,25 @@ function levenshteinDistance(a, b) {
 
 /**
  * List all available prompts
- * @returns {Array<{name: string, version: string, description: string}>}
+ * @returns {Array<{name: string, version: string, description: string, active: boolean}>}
  */
 export function listPrompts() {
     return Object.entries(PromptRegistry).map(([name, prompt]) => ({
         name,
         version: prompt.version,
-        description: prompt.description
+        description: prompt.description,
+        active: prompt.active !== false // Default to true if not specified
     }));
+}
+
+/**
+ * Get list of active prompt names (used in production)
+ * @returns {Array<string>} Array of active prompt keys
+ */
+export function getActivePromptNames() {
+    return Object.entries(PromptRegistry)
+        .filter(([, prompt]) => prompt.active !== false)
+        .map(([name]) => name);
 }
 
 /**

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Preferences from './Preferences';
 import HistoryImportStatus from './HistoryImportStatus';
-import { PROVIDERS, PROVIDER_NAMES } from '../../constants.js';
+import { PROVIDERS, PROVIDER_NAMES, DEFAULT_MAX_TOKENS } from '../../constants.js';
+import { useToast } from '../hooks/useToast.jsx';
+import { getActivePromptNames } from '../../prompts/registry.js';
 
 /**
  * API key configuration for each provider
@@ -75,9 +77,17 @@ function Settings({ onSave, isLLMConfigured }) {
   // Welcome banner state
   const [welcomeDismissed, setWelcomeDismissed] = useState(false);
 
+  // Toast notifications
+  const { showToast, ToastContainer } = useToast();
+
   // Custom Templates state
   const [customTemplates, setCustomTemplates] = useState([]);
   const [showTemplateForm, setShowTemplateForm] = useState(false);
+
+  // Prompt Token Limits state
+  const [maxTokens, setMaxTokens] = useState({});
+  const [savingMaxTokens, setSavingMaxTokens] = useState(false);
+  const [maxTokensMessage, setMaxTokensMessage] = useState({ type: '', text: '' });
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [templateForm, setTemplateForm] = useState({
     name: '',
@@ -174,6 +184,7 @@ function Settings({ onSave, isLLMConfigured }) {
 
         setApiKeys(data.apiKeys || {});
         setOllamaUrl(data.ollamaUrl || 'http://localhost:11434');
+        setMaxTokens(data.maxTokens || {});
 
         // Mark initial load as complete
         setIsInitialLoad(false);
@@ -186,6 +197,22 @@ function Settings({ onSave, isLLMConfigured }) {
       // Load custom templates
       const templatesResult = await chrome.storage.local.get('customTemplates');
       setCustomTemplates(templatesResult.customTemplates || []);
+
+      // Check if history import toast has been shown
+      const historyToastResult = await chrome.storage.local.get('historyImportToastShown');
+      if (!historyToastResult.historyImportToastShown) {
+        // Check if history import actually happened
+        const { getHistoryImportStats } = await import('../../storage/index.js');
+        const stats = await getHistoryImportStats();
+        if (stats && stats.entriesImported > 0) {
+          // Show toast notification (wait a bit so settings UI loads first)
+          setTimeout(() => {
+            showToast(`📦 ${stats.entriesImported} days of history imported! Standup works from day one.`);
+          }, 10000);
+          // Mark as shown
+          await chrome.storage.local.set({ historyImportToastShown: true });
+        }
+      }
     } catch (error) {
       console.error('Error loading settings:', error);
     }
@@ -245,18 +272,14 @@ function Settings({ onSave, isLLMConfigured }) {
           setConnectionStatus({ type: 'error', text: '❌ Connection failed' });
         }
       } else {
-        // Test API provider with a simple message
-        const testPrompt = 'Hi';
+        // Test API provider connection
         const response = await chrome.runtime.sendMessage({
-          type: 'ASK_AI',
+          type: 'TEST_API_CONNECTION',
           data: {
-            prompt: testPrompt,
-            systemPrompt: 'Reply with just "OK"',
             provider: provider,
             model: model,
             apiKey: apiKey,
-            ollamaUrl: ollamaUrl,
-            includeContext: false // Don't build context for connection test
+            ollamaUrl: ollamaUrl
           }
         });
 
@@ -424,6 +447,38 @@ function Settings({ onSave, isLLMConfigured }) {
       setDeleteConfirm(null);
     } catch (error) {
       console.error('Error deleting template:', error);
+    }
+  }
+
+  async function saveMaxTokens() {
+    setSavingMaxTokens(true);
+    setMaxTokensMessage({ type: '', text: '' });
+
+    try {
+      // Get current settings first
+      const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      if (response.success) {
+        // Update only maxTokens
+        const saveResponse = await chrome.runtime.sendMessage({
+          type: 'SAVE_SETTINGS',
+          data: {
+            ...response.data,
+            maxTokens: maxTokens
+          }
+        });
+
+        if (saveResponse.success) {
+          setMaxTokensMessage({ type: 'success', text: 'Token limits saved!' });
+          setTimeout(() => setMaxTokensMessage({ type: '', text: '' }), 3000);
+        } else {
+          setMaxTokensMessage({ type: 'error', text: saveResponse.error || 'Failed to save' });
+        }
+      }
+    } catch (error) {
+      console.error('Error saving maxTokens:', error);
+      setMaxTokensMessage({ type: 'error', text: error.message });
+    } finally {
+      setSavingMaxTokens(false);
     }
   }
 
@@ -726,19 +781,6 @@ function Settings({ onSave, isLLMConfigured }) {
 
       {/* Preferences Section */}
       <Preferences />
-
-      {/* History Import Context */}
-      <div className="mt-8 mb-4">
-        <p className="text-xs text-gray-500 mb-1">
-          Your last 30 days were imported so standup works from day one.
-        </p>
-        <p className="text-xs text-gray-500">
-          OpenOwl gets richer as it captures your live browsing over time.
-        </p>
-      </div>
-
-      {/* History Import Status */}
-      <HistoryImportStatus />
 
       {/* Custom Templates Accordion */}
       <details className="mt-8 border border-gray-200 rounded-lg overflow-hidden">
@@ -1063,6 +1105,115 @@ function Settings({ onSave, isLLMConfigured }) {
         </div>
       </details>
 
+      {/* Prompt Token Limits Accordion */}
+      <details className="mt-8 border border-gray-200 rounded-lg overflow-hidden">
+        <summary className="px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100 font-medium text-gray-900 flex items-center justify-between">
+          <span>⚙️ Advanced: Prompt Token Limits</span>
+          <span className="text-gray-400 text-sm">▼</span>
+        </summary>
+        <div className="p-4 bg-white">
+          <p className="text-sm text-gray-600 mb-4">
+            Control the maximum length of AI responses for each prompt type. Higher values allow more detailed responses but cost more tokens. Lower values save costs but may truncate responses.
+          </p>
+
+          <div className="space-y-4">
+            {Object.entries(DEFAULT_MAX_TOKENS)
+              .filter(([promptKey]) => {
+                // Only show active prompts (filter comes from prompt registry)
+                const activePrompts = getActivePromptNames();
+                return activePrompts.includes(promptKey);
+              })
+              .map(([promptKey, defaultValue]) => {
+              const currentValue = maxTokens[promptKey] ?? defaultValue;
+              const isCustom = maxTokens[promptKey] !== undefined;
+
+              // Friendly prompt names
+              const promptNames = {
+                ask: 'General Questions',
+                standup: 'Daily Standup',
+                summary: 'Day Summary',
+                dayInsight: 'Day Insight (one-line)',
+                memorySearch: 'Memory Search',
+                focus: 'Focus Recommendation',
+                meetingPrep: 'Meeting Prep',
+                customTemplate: 'Custom Templates',
+                weekSummary: 'Weekly Summary'
+              };
+
+              return (
+                <div key={promptKey} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                  <div className="flex-1">
+                    <label className="text-sm font-medium text-gray-700">
+                      {promptNames[promptKey] || promptKey}
+                    </label>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Default: {defaultValue} tokens
+                      {isCustom && <span className="ml-2 text-blue-600">• Custom</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="50"
+                      max="4000"
+                      step="50"
+                      value={currentValue}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || defaultValue;
+                        setMaxTokens({ ...maxTokens, [promptKey]: value });
+                      }}
+                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-owl-blue"
+                    />
+                    {isCustom && (
+                      <button
+                        onClick={() => {
+                          const updated = { ...maxTokens };
+                          delete updated[promptKey];
+                          setMaxTokens(updated);
+                        }}
+                        className="text-xs text-gray-500 hover:text-red-600"
+                        title="Reset to default"
+                      >
+                        ↺
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <button
+                onClick={() => setMaxTokens({})}
+                className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Reset all to defaults
+              </button>
+              <button
+                onClick={saveMaxTokens}
+                disabled={savingMaxTokens}
+                className="px-6 py-2 bg-owl-blue text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+              >
+                {savingMaxTokens ? 'Saving...' : 'Save Token Limits'}
+              </button>
+            </div>
+          </div>
+
+          {/* Success/Error Message */}
+          {maxTokensMessage.text && (
+            <div className={`mt-3 p-3 rounded text-sm ${
+              maxTokensMessage.type === 'success'
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              {maxTokensMessage.text}
+            </div>
+          )}
+        </div>
+      </details>
+
       {/* Privacy Notice */}
       <div className="mt-8 p-4 bg-gray-100 border border-gray-200 rounded-lg">
         <h3 className="text-sm font-semibold text-gray-900 mb-2">
@@ -1085,6 +1236,12 @@ function Settings({ onSave, isLLMConfigured }) {
           <li>• Open source and auditable - <a href="https://github.com/ranjeethpt/openowl" target="_blank" rel="noopener noreferrer" className="text-owl-blue hover:underline">View source code</a></li>
         </ul>
       </div>
+
+      {/* History Import Status - only shown after privacy notice */}
+      <HistoryImportStatus />
+
+      {/* Toast Notification */}
+      <ToastContainer />
       </div>
     </div>
   );
