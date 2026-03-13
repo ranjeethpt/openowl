@@ -16,7 +16,7 @@ export const PROVIDER_NAMES = {
 
 export const DEFAULT_SETTINGS = {
   selectedProvider: null, // No default - user must select
-  selectedModel: 'claude-sonnet-4-20250514',
+  selectedModel: '', // No default - auto-fetched based on provider selection
   apiKeys: {},
   ollamaUrl: 'http://localhost:11434'
 };

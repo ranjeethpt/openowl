@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Preferences from './Preferences';
 import HistoryImportStatus from './HistoryImportStatus';
 import { PROVIDERS, PROVIDER_NAMES } from '../../constants.js';
@@ -54,7 +54,7 @@ function validateApiKey(provider, key) {
  */
 function Settings({ onSave, isLLMConfigured }) {
   const [provider, setProvider] = useState(null); // Start with no selection
-  const [model, setModel] = useState('claude-sonnet-4-20250514');
+  const [model, setModel] = useState(''); // Auto-fetched based on provider
   const [apiKey, setApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState({});
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
@@ -63,14 +63,11 @@ function Settings({ onSave, isLLMConfigured }) {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  // Ollama connection state
-  const [ollamaModels, setOllamaModels] = useState([]);
-  const [ollamaConnected, setOllamaConnected] = useState(false);
-  const [ollamaChecking, setOllamaChecking] = useState(false);
-
-  // Connection testing state
-  const [connectionStatus, setConnectionStatus] = useState({ type: '', text: '' });
-  const [testingConnection, setTestingConnection] = useState(false);
+  // Model fetching state
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [fetchedModels, setFetchedModels] = useState([]);
+  const [modelFetchError, setModelFetchError] = useState('');
+  const [hasLoadedSavedModel, setHasLoadedSavedModel] = useState(false);
 
   // Welcome banner state
   const [welcomeDismissed, setWelcomeDismissed] = useState(false);
@@ -93,90 +90,123 @@ function Settings({ onSave, isLLMConfigured }) {
   const [domainInput, setDomainInput] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  // Model options for each provider
-  const models = {
-    [PROVIDERS.CLAUDE]: [
-      { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (latest)' },
-      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast)' },
-      { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' }
-    ],
-    [PROVIDERS.OPENAI]: [
-      { value: 'gpt-4o', label: 'GPT-4o' },
-      { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-      { value: 'gpt-4', label: 'GPT-4' },
-      { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' }
-    ],
-    [PROVIDERS.GEMINI]: [
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended)' },
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' }
-    ],
-    [PROVIDERS.OLLAMA]: [
-      { value: 'llama3.1', label: 'Llama 3.1 (Recommended)' },
-      { value: 'llama3.2', label: 'Llama 3.2' },
-      { value: 'mistral', label: 'Mistral 7B' },
-      { value: 'codellama', label: 'Code Llama' },
-      { value: 'phi3', label: 'Phi 3 Mini (Fast)' },
-      { value: 'gemma2', label: 'Gemma 2' }
-    ]
-  };
+  // Debounce timer ref
+  const debounceTimerRef = useRef(null);
 
   // Load settings on mount
   useEffect(() => {
     loadSettings();
   }, []);
 
-  // When provider changes, update model to first option (but not on initial load)
+  // When provider changes, clear models and trigger fetch for Ollama
   useEffect(() => {
-    if (!isInitialLoad && provider) { // Only if provider is selected
-      // User manually changed provider - set to first model for that provider
-      if (provider === PROVIDERS.OLLAMA) {
-        // For Ollama, check connection first
-        checkOllamaConnection();
-      } else {
-        setModel(models[provider][0].value);
-      }
-      // Update API key for the current provider
+    if (isInitialLoad) return;
+
+    // Clear previous fetch state
+    setFetchedModels([]);
+    setModelFetchError('');
+    setModel('');
+
+    // Cancel any pending debounce
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    // Update API key for the current provider
+    if (provider) {
       setApiKey(apiKeys[provider] || '');
+
+      // For Ollama, trigger fetch immediately
+      if (provider === PROVIDERS.OLLAMA) {
+        fetchModels();
+      }
     }
   }, [provider]);
 
-  // Auto-detect Ollama when URL changes (debounced)
+  // When API key or Ollama URL changes, debounce and fetch models
   useEffect(() => {
-    if (provider === PROVIDERS.OLLAMA && !isInitialLoad) {
-      const timer = setTimeout(() => {
-        checkOllamaConnection();
-      }, 1000);
-      return () => clearTimeout(timer);
+    if (isInitialLoad) return;
+    if (!provider) return;
+
+    // Don't fetch if we just loaded saved settings
+    // User must manually change key/URL to trigger refetch
+    if (hasLoadedSavedModel) {
+      setHasLoadedSavedModel(false); // Reset flag
+      return;
     }
-  }, [ollamaUrl]);
+
+    // Clear previous errors
+    setModelFetchError('');
+
+    // Cancel previous debounce
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // For Ollama, watch URL changes
+    if (provider === PROVIDERS.OLLAMA) {
+      debounceTimerRef.current = setTimeout(() => {
+        fetchModels();
+      }, 800);
+      return;
+    }
+
+    // For other providers, check if key matches expected format
+    if (!apiKey) {
+      setFetchedModels([]);
+      setModel('');
+      return;
+    }
+
+    const config = API_KEY_CONFIG[provider];
+    if (config?.pattern && config.pattern.test(apiKey)) {
+      // Key matches format, start debounce
+      debounceTimerRef.current = setTimeout(() => {
+        fetchModels();
+      }, 800);
+    } else {
+      // Key doesn't match format yet, clear models
+      setFetchedModels([]);
+      setModel('');
+    }
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [apiKey, ollamaUrl]);
 
   async function loadSettings() {
     try {
       const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
       if (response.success) {
         const data = response.data;
-        const selectedProvider = data.selectedProvider || null; // No fallback - keep null if not set
+        const selectedProvider = data.selectedProvider || null;
         setProvider(selectedProvider);
 
         // Only set model if provider is selected
         if (selectedProvider) {
-          setModel(data.selectedModel || models[selectedProvider][0].value);
+          const savedModel = data.selectedModel || '';
+          setModel(savedModel);
           // Set current provider's API key
           setApiKey(data.apiKeys?.[selectedProvider] || '');
 
-          // If Ollama is selected, check connection
-          if (selectedProvider === 'ollama') {
-            await checkOllamaConnection(data.ollamaUrl || 'http://localhost:11434');
+          // If we have a saved model, populate fetchedModels with it
+          // so the dropdown shows the saved selection without refetching
+          if (savedModel) {
+            setFetchedModels([{ value: savedModel, label: savedModel }]);
+            setHasLoadedSavedModel(true); // Flag to prevent auto-fetch
           }
         }
 
         setApiKeys(data.apiKeys || {});
         setOllamaUrl(data.ollamaUrl || 'http://localhost:11434');
 
-        // Mark initial load as complete
-        setIsInitialLoad(false);
+        // Mark initial load as complete AFTER setting all state
+        // This ensures the apiKey useEffect doesn't trigger fetch
+        setTimeout(() => setIsInitialLoad(false), 0);
       }
 
       // Load welcome banner state
@@ -191,105 +221,73 @@ function Settings({ onSave, isLLMConfigured }) {
     }
   }
 
-  /**
-   * Check Ollama connection and fetch available models
-   */
-  async function checkOllamaConnection(url = ollamaUrl) {
-    setOllamaChecking(true);
-    setOllamaConnected(false);
-    setOllamaModels([]);
-
-    try {
-      const response = await fetch(`${url}/api/tags`);
-      if (!response.ok) throw new Error('Failed to connect');
-
-      const data = await response.json();
-      const models = data.models || [];
-
-      setOllamaModels(models.map(m => ({
-        value: m.name,
-        label: `${m.name}${m.size ? ` (${formatBytes(m.size)})` : ''}`
-      })));
-      setOllamaConnected(true);
-
-      // Set first model as default if none selected
-      if (models.length > 0 && !model) {
-        setModel(models[0].name);
-      }
-    } catch (error) {
-      console.error('Ollama connection failed:', error);
-      setOllamaConnected(false);
-      setOllamaModels([]);
-    } finally {
-      setOllamaChecking(false);
-    }
-  }
 
   /**
-   * Test connection for current provider
+   * Fetch models from the provider
    */
-  async function testConnection() {
-    setTestingConnection(true);
-    setConnectionStatus({ type: '', text: '' });
+  async function fetchModels() {
+    if (!provider) return;
+
+    setFetchingModels(true);
+    setModelFetchError('');
 
     try {
-      if (provider === PROVIDERS.OLLAMA) {
-        // Test Ollama connection
-        await checkOllamaConnection();
-        if (ollamaConnected || ollamaModels.length > 0) {
-          setConnectionStatus({
-            type: 'success',
-            text: `✅ Connected — ${ollamaModels.length} model${ollamaModels.length !== 1 ? 's' : ''} available`
-          });
+      const response = await chrome.runtime.sendMessage({
+        type: 'FETCH_MODELS',
+        data: {
+          provider,
+          apiKey,
+          ollamaUrl
+        }
+      });
+
+      if (response.success) {
+        const models = response.models || [];
+        setFetchedModels(models);
+
+        // Auto-select first model
+        if (models.length > 0) {
+          setModel(models[0].value);
         } else {
-          setConnectionStatus({ type: 'error', text: '❌ Connection failed' });
+          // Empty model list
+          setModelFetchError('no_models');
         }
       } else {
-        // Test API provider with a simple message
-        const testPrompt = 'Hi';
-        const response = await chrome.runtime.sendMessage({
-          type: 'ASK_AI',
-          data: {
-            prompt: testPrompt,
-            systemPrompt: 'Reply with just "OK"',
-            provider: provider,
-            model: model,
-            apiKey: apiKey,
-            ollamaUrl: ollamaUrl,
-            includeContext: false // Don't build context for connection test
-          }
-        });
-
-        if (response.success) {
-          const modelLabel = models[provider].find(m => m.value === model)?.label || model;
-          setConnectionStatus({
-            type: 'success',
-            text: `✅ Connected — ${modelLabel} ready`
-          });
-        } else {
-          setConnectionStatus({
-            type: 'error',
-            text: response.error?.includes('API key') ? '❌ Invalid API key' : '❌ Connection failed'
-          });
-        }
+        // Set error code
+        setModelFetchError(response.error || 'unknown');
+        setFetchedModels([]);
+        setModel('');
       }
     } catch (error) {
-      setConnectionStatus({ type: 'error', text: '❌ Connection failed' });
+      console.error('Error fetching models:', error);
+      setModelFetchError('network');
+      setFetchedModels([]);
+      setModel('');
     } finally {
-      setTestingConnection(false);
-      setTimeout(() => setConnectionStatus({ type: '', text: '' }), 5000);
+      setFetchingModels(false);
     }
   }
 
   /**
-   * Format bytes to human-readable size
+   * Get error message for model fetch error code
    */
-  function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 10) / 10 + ' ' + sizes[i];
+  function getModelFetchErrorMessage(errorCode) {
+    const providerName = PROVIDER_NAMES[provider] || provider;
+
+    switch (errorCode) {
+      case 'invalid_key':
+        return '❌ Invalid API key';
+      case 'rate_limit':
+        return '⏱️ Rate limited — try again in a moment';
+      case 'network':
+        return provider === PROVIDERS.OLLAMA
+          ? `⚠️ Could not reach Ollama at ${ollamaUrl}`
+          : `❌ Could not reach ${providerName} API`;
+      case 'no_models':
+        return '⚠️ No models found — check your API key permissions';
+      default:
+        return '❌ Could not fetch models — check your key';
+    }
   }
 
   async function dismissWelcome() {
@@ -524,64 +522,6 @@ function Settings({ onSave, isLLMConfigured }) {
         )}
       </div>
 
-      {/* Model Selection - only show if provider is selected */}
-      {provider && (
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Model
-          </label>
-
-          {provider === PROVIDERS.OLLAMA && !ollamaConnected ? (
-          // Ollama not connected - show error message
-          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-sm font-medium text-yellow-900 mb-2">
-              ⚠️ Ollama not detected at {ollamaUrl}
-            </p>
-            <p className="text-xs text-yellow-800 mb-3">
-              Make sure Ollama is running
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => checkOllamaConnection()}
-                disabled={ollamaChecking}
-                className="px-3 py-1.5 text-xs font-medium bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
-              >
-                {ollamaChecking ? 'Checking...' : 'Retry connection'}
-              </button>
-              <a
-                href="https://ollama.ai"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 text-xs font-medium text-yellow-900 hover:underline"
-              >
-                Download Ollama →
-              </a>
-            </div>
-          </div>
-        ) : (
-          // Normal model dropdown
-          <>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-blue"
-            >
-              {(provider === PROVIDERS.OLLAMA ? ollamaModels : models[provider]).map(m => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-
-            {/* Ollama connection status */}
-            {provider === PROVIDERS.OLLAMA && ollamaConnected && (
-              <p className="mt-2 text-xs text-green-700">
-                ✅ Ollama connected — {ollamaModels.length} model{ollamaModels.length !== 1 ? 's' : ''} available
-              </p>
-            )}
-          </>
-        )}
-        </div>
-      )}
-
       {/* API Key (not needed for Ollama) */}
       {provider && provider !== 'ollama' && (
         <div className="mb-6">
@@ -619,9 +559,21 @@ function Settings({ onSave, isLLMConfigured }) {
               {showApiKey ? 'Hide' : 'Show'}
             </button>
           </div>
-          {!apiKey ? (
+          {fetchingModels ? (
+            <p className="mt-1 text-xs text-gray-600">
+              ⏳ Checking key and fetching models...
+            </p>
+          ) : !apiKey ? (
             <p className="mt-1 text-xs text-gray-500">
               No API key — Save to use copy-only mode
+            </p>
+          ) : fetchedModels.length > 0 ? (
+            <p className="mt-1 text-xs text-green-700">
+              ✅ Connected — {fetchedModels.length} model{fetchedModels.length !== 1 ? 's' : ''} available
+            </p>
+          ) : modelFetchError ? (
+            <p className="mt-1 text-xs text-red-600">
+              {getModelFetchErrorMessage(modelFetchError)}
             </p>
           ) : apiKey && !validateApiKey(provider, apiKey) ? (
             <p className="mt-1 text-xs text-red-600">
@@ -648,59 +600,130 @@ function Settings({ onSave, isLLMConfigured }) {
             placeholder="http://localhost:11434"
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-blue"
           />
-          <p className="mt-1 text-xs text-gray-500">
-            Make sure Ollama is running at this URL
-          </p>
-          <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
-            <p className="font-semibold mb-1">Getting a 403 error?</p>
-            <p className="mb-1">Restart Ollama with CORS allowed for the extension:</p>
-            <code className="block bg-blue-100 p-1 rounded font-mono text-[10px]">
-              OLLAMA_ORIGINS="chrome-extension://*" ollama serve
-            </code>
-          </div>
-          <p className="mt-2 text-xs text-gray-600">
-            Don't have Ollama? <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer" className="text-owl-blue hover:underline">Download free at ollama.ai</a>
-          </p>
+          {fetchingModels ? (
+            <p className="mt-1 text-xs text-gray-600">
+              ⏳ Looking for Ollama...
+            </p>
+          ) : modelFetchError === 'network' ? (
+            <>
+              <div className="mt-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-xs text-yellow-800">
+                <p className="font-semibold mb-1">⚠️ Could not reach Ollama at {ollamaUrl}</p>
+                <p className="mb-2">Make sure Ollama is running</p>
+              </div>
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
+                <p className="font-semibold mb-1">Getting a 403 error?</p>
+                <p className="mb-1">Restart Ollama with CORS allowed for the extension:</p>
+                <code className="block bg-blue-100 p-1 rounded font-mono text-[10px]">
+                  OLLAMA_ORIGINS="chrome-extension://*" ollama serve
+                </code>
+              </div>
+              <p className="mt-2 text-xs text-gray-600">
+                Don't have Ollama? <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer" className="text-owl-blue hover:underline">Download free at ollama.ai</a>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-xs text-gray-500">
+                Make sure Ollama is running at this URL
+              </p>
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
+                <p className="font-semibold mb-1">Getting a 403 error?</p>
+                <p className="mb-1">Restart Ollama with CORS allowed for the extension:</p>
+                <code className="block bg-blue-100 p-1 rounded font-mono text-[10px]">
+                  OLLAMA_ORIGINS="chrome-extension://*" ollama serve
+                </code>
+              </div>
+              <p className="mt-2 text-xs text-gray-600">
+                Don't have Ollama? <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer" className="text-owl-blue hover:underline">Download free at ollama.ai</a>
+              </p>
+            </>
+          )}
         </div>
       )}
 
-      {/* Test Connection Button */}
-      <div className="mb-4">
-        <button
-          onClick={testConnection}
-          disabled={testingConnection || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)}
-          className={`
-            w-full px-4 py-2 rounded-lg font-medium border-2
-            ${testingConnection || (!apiKey && provider !== PROVIDERS.OLLAMA) || (provider === PROVIDERS.OLLAMA && !ollamaConnected)
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-owl-blue border-owl-blue hover:bg-owl-blue/5'
-            }
-          `}
-        >
-          {testingConnection ? 'Testing...' : 'Test Connection'}
-        </button>
-
-        {/* Connection Status */}
-        {connectionStatus.text && (
-          <div className={`mt-2 p-3 rounded-lg text-sm ${
-            connectionStatus.type === 'success'
-              ? 'bg-green-50 text-green-800 border border-green-200'
-              : 'bg-red-50 text-red-800 border border-red-200'
-          }`}>
-            {connectionStatus.text}
+      {/* Model Selection - only show if provider is selected */}
+      {provider && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Model
+            </label>
+            {fetchedModels.length > 0 && (
+              <button
+                type="button"
+                onClick={() => fetchModels()}
+                disabled={fetchingModels}
+                className="text-xs text-owl-blue hover:text-owl-blue/80 disabled:opacity-50"
+              >
+                {fetchingModels ? 'Refreshing...' : '🔄 Refresh models'}
+              </button>
+            )}
           </div>
-        )}
-      </div>
+
+          {fetchingModels ? (
+            // Loading state
+            <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 flex items-center">
+              <span className="animate-spin mr-2">⏳</span>
+              Loading models...
+            </div>
+          ) : fetchedModels.length > 0 ? (
+            // Models loaded successfully
+            <>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-blue"
+              >
+                {fetchedModels.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-gray-500">
+                {fetchedModels.length} model{fetchedModels.length !== 1 ? 's' : ''} available
+              </p>
+            </>
+          ) : modelFetchError ? (
+            // Error state
+            <div>
+              <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+                Could not load models
+              </div>
+              <p className="mt-2 text-xs text-red-600">
+                {getModelFetchErrorMessage(modelFetchError)}
+              </p>
+              {provider === PROVIDERS.OLLAMA && modelFetchError === 'network' && (
+                <div className="mt-2">
+                  <a
+                    href="https://ollama.ai"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-owl-blue hover:underline"
+                  >
+                    Download Ollama →
+                  </a>
+                </div>
+              )}
+            </div>
+          ) : (
+            // No key entered yet or key doesn't match format
+            <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+              {provider === PROVIDERS.OLLAMA
+                ? 'Enter Ollama URL above'
+                : 'Enter your API key above'}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Save Button - only show if provider selected */}
       {provider && (
         <div className="mb-6">
           <button
             onClick={handleSave}
-            disabled={saving || (provider === PROVIDERS.OLLAMA && !ollamaConnected)}
+            disabled={saving || fetchingModels || !model || (provider !== PROVIDERS.OLLAMA && !apiKey)}
             className={`
               w-full px-4 py-2 rounded-lg font-medium
-              ${saving || (provider === PROVIDERS.OLLAMA && !ollamaConnected)
+              ${saving || fetchingModels || !model || (provider !== PROVIDERS.OLLAMA && !apiKey)
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-owl-blue text-white hover:bg-owl-blue/90'
               }

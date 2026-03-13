@@ -3,7 +3,7 @@
  * Handles all message passing and LLM calls
  */
 
-import { callLLM } from '../llm/index.js';
+import { callLLM, fetchModels } from '../llm/index.js';
 import * as storage from '../storage/index.js';
 import { getPrompt } from '../prompts/registry.js';
 import { detectTemplate } from '../utils/intentDetector.js';
@@ -123,6 +123,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'TEST_OLLAMA_CONNECTION':
       handleTestOllamaConnection(sendResponse);
+      return true; // Async response
+
+    case 'FETCH_MODELS':
+      handleFetchModels(message.data, sendResponse);
       return true; // Async response
 
     default:
@@ -1296,6 +1300,15 @@ async function handleTestOllamaConnection(sendResponse) {
     console.warn('Ollama connection test failed:', error);
     sendResponse({ success: false, error: error.message });
   }
+}
+
+/**
+ * Fetch available models from the provider
+ * Delegates to the LLM module's fetchModels function
+ */
+async function handleFetchModels(data, sendResponse) {
+  const result = await fetchModels(data);
+  sendResponse(result);
 }
 
 // ============================================
