@@ -7,6 +7,11 @@
 
 > A Chrome extension that remembers what you work on across all your tabs and helps you write standups, find things you researched, and understand where your time goes. Completely private and local-first.
 
+[![Build](https://github.com/ranjeethpt/openowl/actions/workflows/build.yml/badge.svg)](https://github.com/ranjeethpt/openowl/actions/workflows/build.yml)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=ranjeethpt_openowl&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=ranjeethpt_openowl)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=ranjeethpt_openowl&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ranjeethpt_openowl)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=ranjeethpt_openowl&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=ranjeethpt_openowl)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=ranjeethpt_openowl&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=ranjeethpt_openowl)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 </div>
 
