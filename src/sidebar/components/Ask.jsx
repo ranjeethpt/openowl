@@ -550,7 +550,7 @@ function Ask({ messages, onMessagesChange, onNavigateToSettings, isLLMConfigured
                       </button>
                     </div>
                   ) : (
-                    <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
+                    <div className="text-sm whitespace-pre-wrap break-words">{msg.text}</div>
                   )}
 
                   {/* Settings link for error messages */}
