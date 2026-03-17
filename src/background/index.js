@@ -492,15 +492,20 @@ async function handleAskAI(data, sendResponse) {
     // Get settings for API key and model
     const settings = await storage.getSettings();
 
+    // Extract the actual user question from the last message in the conversation
+    // (Frontend always adds it to messages before sending)
+    const lastMsg = messages[messages.length - 1];
+    const userQuestion = (lastMsg && lastMsg.role === 'user') ? lastMsg.text : question;
+
     // Step 1: Check for template match
-    const detected = await detectTemplate(question);
+    const detected = await detectTemplate(userQuestion);
 
     if (detected) {
       const { key, template } = detected;
       console.log(`[ASK_AI] Template detected: ${key}`);
 
       // Gather exactly what this template needs
-      const templateData = await template.gather(question);
+      const templateData = await template.gather(userQuestion);
 
       // Check if custom template returned isEmpty
       if (template.isCustom && templateData.isEmpty) {
@@ -525,17 +530,15 @@ async function handleAskAI(data, sendResponse) {
       const builtPrompt = getPrompt(template.prompt, promptContext, settings);
       const { system, user, maxTokens } = builtPrompt;
 
-      // Use the user message from prompt, or fall back to the question
-      const currentPrompt = user || question;
-
-      // Call LLM with full conversation history
+      // Don't send prompt separately - it's already in messages array
+      // callLLM will use the last user message from messages
       const result = await callLLM({
         provider: settings.selectedProvider,
         apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
         model: settings.selectedModel,
-        prompt: currentPrompt,
+        prompt: '', // Empty - rely on messages array
         systemPrompt: system,
-        messages, // ← multi-turn history
+        messages, // ← Contains full conversation including current user message
         maxTokens,
         ollamaUrl: settings.ollamaUrl
       });
@@ -566,7 +569,7 @@ async function handleAskAI(data, sendResponse) {
 
     // No template match → general full context
     console.log('[ASK_AI] No template match, using full context');
-    const context = await buildFullContext(question, settings.selectedModel);
+    const context = await buildFullContext(userQuestion, settings.selectedModel);
     const builtPrompt = getPrompt('ask', {
       tabs: context.tabs,
       tabCount: context.tabsUsed,
@@ -579,9 +582,9 @@ async function handleAskAI(data, sendResponse) {
       provider: settings.selectedProvider,
       apiKey: settings.apiKeys?.[settings.selectedProvider] || '',
       model: settings.selectedModel,
-      prompt: question,
+      prompt: '', // Empty - rely on messages array
       systemPrompt: builtPrompt.system,
-      messages, // ← multi-turn history
+      messages, // ← Contains full conversation including current user message
       maxTokens: builtPrompt.maxTokens || 2000,
       ollamaUrl: settings.ollamaUrl
     });
